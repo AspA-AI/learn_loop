@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+openai
+weaviate-client
+supabase
+python-dotenv
+pydantic
+pydantic-settings
+python-multipart
+httpx
+watchfiles
+pytest
+pytest-asyncio
+pytest-mock
+pytest-cov
+psycopg2-binary
