@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAppSelector, useAppDispatch } from '../../hooks/store';
 import { fetchChildren, addChild, pinTopic } from '../user/userSlice';
-import { fetchCurriculum, uploadDocument } from './parentSlice';
+import { fetchInsights, fetchCurriculum, uploadDocument } from './parentSlice';
 import { 
   Plus, 
   Key, 
@@ -24,6 +24,33 @@ import {
 } from 'lucide-react';
 
 const GrowthInsights: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const { insights, isLoading } = useAppSelector((state) => state.parent);
+
+  useEffect(() => {
+    dispatch(fetchInsights());
+  }, [dispatch]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-10 animate-fade-in">
+        <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border text-center">
+          <p className="text-muted-foreground font-bold">Loading insights...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!insights) {
+    return (
+      <div className="space-y-10 animate-fade-in">
+        <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border text-center">
+          <p className="text-muted-foreground font-bold">No insights available yet. Start a learning session to see progress!</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10 animate-fade-in">
       <header className="flex justify-between items-end">
@@ -41,29 +68,78 @@ const GrowthInsights: React.FC = () => {
         </div>
       </header>
 
-      {/* Strategic Insight Timeline */}
+      {/* Summary Card */}
       <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border">
-        <h3 className="text-2xl font-black text-primary mb-10 flex items-center gap-3">
-          Educational <span className="text-secondary">Milestones</span>
-        </h3>
-        <div className="space-y-12">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="relative pl-10 border-l-2 border-border/60 pb-4 last:pb-0">
-              <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-4 border-secondary shadow-sm" />
-              <div className="flex items-center gap-3 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mb-3">
-                <Clock size={12} /> {i === 1 ? 'Today' : i === 2 ? 'Yesterday' : '2 days ago'}, 2:30 PM
-              </div>
-              <div className="bg-muted/30 p-6 rounded-2xl border border-border/50">
-                <p className="font-bold text-primary text-lg leading-relaxed">
-                  {i === 1 ? 'Leo demonstrated conceptual understanding of Photosynthesis. Successfully related light energy to "cooking fuel" for plants.' : 
-                   i === 2 ? 'Mia mastered the core concepts of Newtonian Mechanics. Used real-world examples to explain force and acceleration.' :
-                   'Leo explored the basics of Roman History. Identified 3 key characteristics of the Roman Republic.'}
-                </p>
-              </div>
-            </div>
-          ))}
+        <h3 className="text-2xl font-black text-primary mb-6">Learning Summary</h3>
+        <p className="text-lg font-medium text-primary leading-relaxed mb-6">{insights.summary}</p>
+        
+        <div className="grid grid-cols-3 gap-6 mt-8">
+          <div className="p-6 bg-muted/30 rounded-2xl border border-border/50">
+            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">Overall Mastery</p>
+            <p className="text-3xl font-black text-primary">{insights.overall_mastery}%</p>
+          </div>
+          <div className="p-6 bg-muted/30 rounded-2xl border border-border/50">
+            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">Total Sessions</p>
+            <p className="text-3xl font-black text-primary">{insights.total_sessions}</p>
+          </div>
+          <div className="p-6 bg-muted/30 rounded-2xl border border-border/50">
+            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-2">Learning Hours</p>
+            <p className="text-3xl font-black text-primary">{insights.total_hours}</p>
+          </div>
         </div>
       </div>
+
+      {/* Achievements & Challenges */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {insights.achievements.length > 0 && (
+          <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border">
+            <h3 className="text-xl font-black text-primary mb-6 flex items-center gap-2">
+              <Award size={20} className="text-secondary" /> Achievements
+            </h3>
+            <ul className="space-y-4">
+              {insights.achievements.map((achievement, idx) => (
+                <li key={idx} className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-secondary mt-2 flex-shrink-0" />
+                  <p className="font-medium text-primary leading-relaxed">{achievement}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {insights.challenges.length > 0 && (
+          <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border">
+            <h3 className="text-xl font-black text-primary mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-secondary" /> Areas to Focus
+            </h3>
+            <ul className="space-y-4">
+              {insights.challenges.map((challenge, idx) => (
+                <li key={idx} className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-amber-500 mt-2 flex-shrink-0" />
+                  <p className="font-medium text-primary leading-relaxed">{challenge}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Recommended Next Steps */}
+      {insights.recommended_next_steps.length > 0 && (
+        <div className="bg-primary p-10 rounded-[2.5rem] shadow-lg text-white">
+          <h3 className="text-xl font-black mb-6 flex items-center gap-2">
+            <ArrowRight size={20} className="text-secondary" /> Recommended Next Steps
+          </h3>
+          <ul className="space-y-3">
+            {insights.recommended_next_steps.map((step, idx) => (
+              <li key={idx} className="flex items-start gap-3">
+                <div className="w-2 h-2 rounded-full bg-secondary mt-2 flex-shrink-0" />
+                <p className="font-medium text-white/90 leading-relaxed">{step}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
@@ -71,11 +147,19 @@ const GrowthInsights: React.FC = () => {
 const ChildrenManagement: React.FC = () => {
   const dispatch = useAppDispatch();
   const { profiles, isLoading } = useAppSelector((state) => state.user);
+  const { insights } = useAppSelector((state) => state.parent);
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newAge, setNewAge] = useState<6 | 8 | 10>(8);
   const [editingTopic, setEditingTopic] = useState<string | null>(null);
   const [tempTopic, setTempTopic] = useState('');
+
+  // Get stats for each child from insights
+  const getChildStats = (childId: string) => {
+    if (!insights) return { mastery: 0, hours: 0 };
+    const stat = insights.children_stats.find(s => s.child_id === childId);
+    return stat ? { mastery: stat.mastery_percent, hours: stat.total_hours } : { mastery: 0, hours: 0 };
+  };
 
   const handleAddChild = (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,12 +300,12 @@ const ChildrenManagement: React.FC = () => {
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="p-5 bg-muted/50 rounded-2xl border border-border text-center">
                 <Award size={14} className="mx-auto mb-2 text-muted-foreground" />
-                <p className="text-lg font-black text-primary">{profile.name === 'Leo' ? '8' : '15'}</p>
+                <p className="text-lg font-black text-primary">{getChildStats(profile.id).mastery}%</p>
                 <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Mastery</p>
               </div>
               <div className="p-5 bg-muted/50 rounded-2xl border border-border text-center">
                 <Clock size={14} className="mx-auto mb-2 text-muted-foreground" />
-                <p className="text-lg font-black text-primary">{profile.name === 'Leo' ? '12.5' : '24.2'}</p>
+                <p className="text-lg font-black text-primary">{getChildStats(profile.id).hours}</p>
                 <p className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Hours</p>
               </div>
             </div>
@@ -432,6 +516,7 @@ const ParentDashboard: React.FC = () => {
 
   useEffect(() => {
     dispatch(fetchChildren());
+    dispatch(fetchInsights());
   }, [dispatch]);
 
   const renderView = () => {

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 MOCK_PARENT_ID = "00000000-0000-0000-0000-000000000000"
 
-def seed_test_child():
+def seed_test_children():
     db_url = settings.SUPABASE_DB_URL
     if not db_url:
         return
@@ -17,15 +17,24 @@ def seed_test_child():
         conn = psycopg2.connect(db_url)
         cur = conn.cursor()
 
-        # Insert a test child
+        # Seed Leo
         cur.execute("""
             INSERT INTO children (parent_id, name, age_level, learning_code, target_topic)
             VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (learning_code) DO NOTHING;
-        """, (MOCK_PARENT_ID, "Leo", 8, "LEO-782", "The Water Cycle"))
+            ON CONFLICT (learning_code) 
+            DO UPDATE SET target_topic = EXCLUDED.target_topic;
+        """, (MOCK_PARENT_ID, "Leo", 8, "LEO-782", "Photosynthesis"))
+
+        # Seed Mia
+        cur.execute("""
+            INSERT INTO children (parent_id, name, age_level, learning_code, target_topic)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (learning_code) 
+            DO UPDATE SET target_topic = EXCLUDED.target_topic;
+        """, (MOCK_PARENT_ID, "Mia", 10, "MIA-290", "Mathematical Division"))
 
         conn.commit()
-        logger.info("Test child 'Leo' seeded with code 'LEO-782'")
+        logger.info("Test children 'Leo' (LEO-782) and 'Mia' (MIA-290) updated with new topics.")
 
     except Exception as e:
         logger.error(f"Seeding failed: {e}")
@@ -34,5 +43,4 @@ def seed_test_child():
         if 'conn' in locals(): conn.close()
 
 if __name__ == "__main__":
-    seed_test_child()
-
+    seed_test_children()

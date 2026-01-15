@@ -1,8 +1,15 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Drop existing tables to ensure clean schema update
+DROP TABLE IF EXISTS public.interactions CASCADE;
+DROP TABLE IF EXISTS public.sessions CASCADE;
+DROP TABLE IF EXISTS public.child_curriculum CASCADE;
+DROP TABLE IF EXISTS public.curriculum_documents CASCADE;
+DROP TABLE IF EXISTS public.children CASCADE;
+
 -- Table for Children Profiles (Managed by Parents)
-CREATE TABLE IF NOT EXISTS public.children (
+CREATE TABLE public.children (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     parent_id UUID NOT NULL, -- Link to the parent (Supabase Auth ID)
     name TEXT NOT NULL,
@@ -14,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.children (
 );
 
 -- Table for Curriculum Documents
-CREATE TABLE IF NOT EXISTS public.curriculum_documents (
+CREATE TABLE public.curriculum_documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     parent_id UUID NOT NULL,
     file_name TEXT NOT NULL,
@@ -23,14 +30,14 @@ CREATE TABLE IF NOT EXISTS public.curriculum_documents (
 );
 
 -- Many-to-Many relationship between Children and Curriculum
-CREATE TABLE IF NOT EXISTS public.child_curriculum (
+CREATE TABLE public.child_curriculum (
     child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
     document_id UUID REFERENCES public.curriculum_documents(id) ON DELETE CASCADE,
     PRIMARY KEY (child_id, document_id)
 );
 
 -- Table for Learning Sessions
-CREATE TABLE IF NOT EXISTS public.sessions (
+CREATE TABLE public.sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
     concept TEXT NOT NULL,
@@ -40,7 +47,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
 );
 
 -- Table for Chat Interactions
-CREATE TABLE IF NOT EXISTS public.interactions (
+CREATE TABLE public.interactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id UUID REFERENCES public.sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL, -- 'user' or 'assistant'
@@ -51,4 +58,4 @@ CREATE TABLE IF NOT EXISTS public.interactions (
 );
 
 -- Index for learning_code lookup
-CREATE INDEX IF NOT EXISTS idx_children_learning_code ON public.children(learning_code);
+CREATE INDEX idx_children_learning_code ON public.children(learning_code);

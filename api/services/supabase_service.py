@@ -143,4 +143,45 @@ class SupabaseService:
             logger.error(f"Error fetching interactions: {e}")
             return []
 
+    # --- Parent Insights ---
+
+    def get_sessions_for_parent(self, parent_id: str) -> List[Dict[str, Any]]:
+        """Get all sessions for all children of a parent"""
+        if not self.client:
+            return []
+        try:
+            # Get all children for parent, then get their sessions
+            children_response = self.client.table("children").select("id, name, learning_code").eq("parent_id", parent_id).execute()
+            children_map = {c["id"]: c for c in children_response.data}
+            child_ids = list(children_map.keys())
+            
+            if not child_ids:
+                return []
+            
+            # Get all sessions for these children
+            sessions_response = self.client.table("sessions").select("*").in_("child_id", child_ids).order("created_at", desc=True).execute()
+            
+            # Enrich sessions with child info
+            for session in sessions_response.data:
+                child_id = session["child_id"]
+                if child_id in children_map:
+                    session["child_name"] = children_map[child_id]["name"]
+                    session["child_learning_code"] = children_map[child_id]["learning_code"]
+            
+            return sessions_response.data
+        except Exception as e:
+            logger.error(f"Error fetching sessions for parent: {e}")
+            return []
+
+    def get_interactions_with_states(self, session_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get all interactions with understanding states for given sessions"""
+        if not self.client or not session_ids:
+            return []
+        try:
+            response = self.client.table("interactions").select("*").in_("session_id", session_ids).order("created_at").execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching interactions with states: {e}")
+            return []
+
 supabase_service = SupabaseService()

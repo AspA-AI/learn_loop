@@ -16,9 +16,15 @@ class WeaviateService:
 
         try:
             auth_credentials = Auth.api_key(settings.WEAVIATE_API_KEY) if settings.WEAVIATE_API_KEY else None
+            # Add OpenAI key to headers for vectorization
+            headers = {
+                "X-OpenAI-Api-Key": settings.OPENAI_API_KEY
+            } if settings.OPENAI_API_KEY else {}
+
             self.client = weaviate.connect_to_wcs(
                 cluster_url=settings.WEAVIATE_URL,
-                auth_credentials=auth_credentials
+                auth_credentials=auth_credentials,
+                headers=headers
             )
             logger.info("Successfully connected to Weaviate.")
         except Exception as e:

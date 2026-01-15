@@ -13,7 +13,10 @@ def init_weaviate():
 
     client = weaviate.connect_to_wcs(
         cluster_url=settings.WEAVIATE_URL,
-        auth_credentials=weaviate.auth.AuthApiKey(settings.WEAVIATE_API_KEY)
+        auth_credentials=weaviate.auth.AuthApiKey(settings.WEAVIATE_API_KEY),
+        headers={
+            "X-OpenAI-Api-Key": settings.OPENAI_API_KEY
+        }
     )
 
     try:

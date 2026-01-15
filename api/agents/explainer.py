@@ -39,7 +39,7 @@ class ExplainerAgent:
             
         return f"{self.role_description}\n\n{base_constraints}\n\n{framing}"
 
-    async def get_initial_explanation(self, concept: str, age_level: AgeLevel, child_name: str = "there", context_overrides: Optional[dict] = None) -> str:
+    async def get_initial_explanation(self, concept: str, age_level: AgeLevel, child_name: str = "there", grounding_context: Optional[str] = None, context_overrides: Optional[dict] = None) -> str:
         system_prompt = self._get_system_prompt(age_level)
         
         user_prompt = (
@@ -47,6 +47,9 @@ class ExplainerAgent:
             f"Then, explain the concept of '{concept}' to them using a fun, {age_level}-year-old appropriate analogy. "
             "Keep it under 3 sentences."
         )
+
+        if grounding_context:
+            user_prompt += f"\n\nUse this specific curriculum context for your explanation: {grounding_context}"
         
         if context_overrides and "interests" in context_overrides:
             interests = ", ".join(context_overrides["interests"])
@@ -59,10 +62,13 @@ class ExplainerAgent:
         
         return await openai_service.get_chat_completion(messages, temperature=0.7)
 
-    async def get_adaptive_response(self, concept: str, age_level: AgeLevel, child_message: str, history: List[Dict[str, str]]) -> str:
+    async def get_adaptive_response(self, concept: str, age_level: AgeLevel, child_message: str, history: List[Dict[str, str]], grounding_context: Optional[str] = None) -> str:
         system_prompt = self._get_system_prompt(age_level)
         
         messages = [{"role": "system", "content": system_prompt}]
+        if grounding_context:
+            messages.append({"role": "system", "content": f"Curriculum Context: {grounding_context}"})
+            
         messages.extend(history)
         messages.append({"role": "user", "content": child_message})
         

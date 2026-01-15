@@ -1,15 +1,67 @@
 import logging
+import logging.config
+import colorlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from routes import session, parent
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure colored logging using dictConfig (works with uvicorn)
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "colored": {
+            "()": "colorlog.ColoredFormatter",
+            "format": "%(log_color)s%(asctime)s - %(name)s - %(levelname)s%(reset)s - %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+            "log_colors": {
+                'DEBUG': 'cyan',
+                'INFO': 'green',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'red,bg_white',
+            }
+        }
+    },
+    "handlers": {
+        "default": {
+            "formatter": "colored",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout"
+        }
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["default"]
+    },
+    "loggers": {
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["default"],
+            "propagate": False
+        },
+        "uvicorn.error": {
+            "level": "INFO",
+            "handlers": ["default"],
+            "propagate": False
+        },
+        "uvicorn.access": {
+            "level": "WARNING",
+            "handlers": ["default"],
+            "propagate": False
+        },
+        "httpx": {
+            "level": "WARNING",
+            "handlers": ["default"],
+            "propagate": False
+        },
+    }
+}
+
+# Apply logging configuration
+logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -59,5 +111,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_config=LOGGING_CONFIG)
 

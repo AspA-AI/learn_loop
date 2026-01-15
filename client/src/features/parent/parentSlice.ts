@@ -1,11 +1,24 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
 import { learningApi } from '../../services/api';
 
+interface ChildStat {
+  child_id: string;
+  name: string;
+  mastery_count: number;
+  mastery_percent: number;
+  total_sessions: number;
+  total_hours: number;
+}
+
 interface ParentInsight {
   summary: string;
   achievements: string[];
   challenges: string[];
   recommended_next_steps: string[];
+  children_stats: ChildStat[];
+  overall_mastery: number;
+  total_sessions: number;
+  total_hours: number;
 }
 
 interface CurriculumDoc {
@@ -30,6 +43,10 @@ const initialState: ParentState = {
   error: null,
   currentView: 'insights',
 };
+
+export const fetchInsights = createAsyncThunk('parent/fetchInsights', async (week?: string) => {
+  return await learningApi.getParentInsights(week || '');
+});
 
 export const fetchCurriculum = createAsyncThunk('parent/fetchCurriculum', async () => {
   return await learningApi.getCurriculum();
@@ -61,6 +78,18 @@ const parentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(fetchInsights.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchInsights.fulfilled, (state, action) => {
+        state.insights = action.payload;
+        state.isLoading = false;
+      })
+      .addCase(fetchInsights.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to fetch insights';
+      })
       .addCase(fetchCurriculum.fulfilled, (state, action) => {
         state.curriculum = action.payload;
       })

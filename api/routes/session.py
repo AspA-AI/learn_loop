@@ -38,7 +38,8 @@ async def start_session(request: SessionStartRequest):
         initial_explanation = await explainer_agent.get_initial_explanation(
             concept=concept,
             age_level=age_level,
-            child_name=child["name"]
+            child_name=child["name"],
+            grounding_context=grounding_context
         )
         
         # 5. Save initial interaction to Supabase
@@ -103,11 +104,13 @@ async def interact(
         )
         
         # 4. Get adaptive response from Explainer Agent
+        grounding_context = weaviate_service.retrieve_curriculum_context(session["concept"], session["age_level"])
         agent_response = await explainer_agent.get_adaptive_response(
             concept=session["concept"],
             age_level=session["age_level"],
             child_message=child_message,
-            history=history
+            history=history,
+            grounding_context=grounding_context
         )
         
         # 5. Save interactions to Supabase
