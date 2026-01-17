@@ -166,7 +166,7 @@ async def interact(
         # 3. Evaluate child's understanding
         logger.info(f"🔍 [EVALUATION] Starting assessment for session: {session_id}")
         logger.info(f"📤 [EVALUATION] Concept: '{session['concept']}'")
-        logger.info(f"📤 [EVALUATION] AI Last Message: \"{last_explanation[:100]}{'...' if len(last_explanation) > 100 else ''}\"")
+        logger.info(f"📤 [EVALUATION] AI Last Message: \"{last_explanation}{'...' if len(last_explanation) > 100 else ''}\"")
         logger.info(f"📥 [EVALUATION] Child Response: \"{child_message}\"")
 
         state, reasoning, hint, performance_metrics = await evaluator_agent.evaluate_understanding(
@@ -190,6 +190,13 @@ async def interact(
         elif state == UnderstandingState.UNDERSTOOD:
             # Reset confusion count if they understood
             confusion_attempts = 0
+        elif state == UnderstandingState.PROCEDURAL:
+            # If procedural, keep the previous confusion count (don't increment, don't reset)
+            previous_states = [s for s in recent_states if s != "procedural"]
+            if previous_states and previous_states[-1] == "confused":
+                confusion_attempts = sum(1 for s in recent_states if s == "confused")
+            else:
+                confusion_attempts = 0
         
         # 4. Get adaptive response from Explainer Agent (step-by-step for math)
         grounding_context = weaviate_service.retrieve_curriculum_context(session["concept"], session["age_level"])
@@ -207,8 +214,7 @@ async def interact(
             can_end_session = False
             should_offer_end = False
             conversation_phase = "story_quiz"
-            # Don't evaluate yet - just give the story explanation
-            state = UnderstandingState.PARTIAL  # Neutral state for story phase
+            # State is already set to PROCEDURAL by the gatekeeper above
         elif conversation_phase == "story_quiz":
             # Step 2: Child answered story quiz, evaluate and then give academic explanation
             # Evaluate their answer first (already done above)
@@ -255,20 +261,28 @@ async def interact(
                 "?" in child_message  # Asked a question
             )
             
+            logger.info(f"📊 [DECISION] Substantive check: {is_substantive} (Message: \"{child_message}\")")
+            
             if is_substantive:
                 # Check last 2-3 interactions for consistent understanding (including current)
                 recent_understood = [s for s in recent_states if s == "understood"]
+                logger.info(f"📊 [DECISION] Recent understood states: {len(recent_understood)} in last 5 turns")
+                
                 # Current state is "understood", so we need at least 1 more in recent history
                 if len(recent_understood) >= 1:  # Current + at least 1 previous = 2 total
                     can_end_session = True
                     can_take_quiz = True  # Offer quiz option when they've mastered it
+                    logger.info("🎯 [DECISION] MASTERY REACHED: Enabling Quiz and End Session buttons")
                     # Add end session and quiz suggestion to the response
                     agent_response += "\n\n🎉 You've really mastered this! You can take a practice quiz to reinforce what you learned, or end this session and I'll create a summary of everything you learned today."
         
         # If child is stuck after multiple attempts, offer to end session
         if should_offer_end:
+            logger.info("⚠️ [DECISION] Confusion threshold reached: Offering to end session")
             agent_response += "\n\n💙 Sometimes concepts take time to understand, and that's perfectly okay! If you'd like, we can end this session here. Your parent will see a summary of what we worked on today, and you can always come back to try again later."
             can_end_session = True  # Allow them to end even if confused
+
+        logger.info(f"🏁 [DECISION] Final flags -> can_end_session: {can_end_session}, can_take_quiz: {can_take_quiz}")
         
         # 5. Save interactions to Supabase
         supabase_service.add_interaction(session_id, "user", child_message)

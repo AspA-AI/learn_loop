@@ -228,18 +228,11 @@ class ExplainerAgent:
                     "- Ask what specifically is confusing them\n"
                     "Be patient and encouraging."
                 )
-        else:
-            # For brief agreeable responses, ask for demonstration
-            brief_responses = ["ok", "got it", "i understand", "i see", "yes", "understood", "clear"]
-            if any(brief in child_message.lower() for brief in brief_responses):
-                system_prompt += (
-                    f"\n\nIMPORTANT: The child gave a brief agreeable response. This is NOT evidence of understanding. "
-                    f"Ask them to demonstrate understanding of '{concept}' by:\n"
-                    f"- Explaining '{concept}' in their own words\n"
-                    f"- Solving a simple problem or question (show them the academic format for '{concept}' too)\n"
-                    f"- Giving an example\n"
-                    f"Do NOT assume they understand just because they said 'OK' or 'got it'."
-                )
+        elif understanding_state == "procedural":
+            system_prompt += (
+                "\n\nThe child's message is procedural (ready, thanks, ok). "
+                "Acknowledge their response warmly and proceed with the next step of your explanation or ask your next question."
+            )
         
         messages = [{"role": "system", "content": system_prompt}]
         if grounding_context:

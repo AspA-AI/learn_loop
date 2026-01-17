@@ -12,6 +12,7 @@ class UnderstandingState(str, Enum):
     UNDERSTOOD = "understood"
     PARTIAL = "partial"
     CONFUSED = "confused"
+    PROCEDURAL = "procedural"  # For non-academic responses like "ready", "thanks", "ok"
 
 # --- Child & Curriculum ---
 

@@ -58,3 +58,4 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
 
 export default ProgressGauge;
 
+
