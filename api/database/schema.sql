@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Drop existing tables to ensure clean schema update
 DROP TABLE IF EXISTS public.interactions CASCADE;
 DROP TABLE IF EXISTS public.sessions CASCADE;
+DROP TABLE IF EXISTS public.child_topics CASCADE;
 DROP TABLE IF EXISTS public.child_curriculum CASCADE;
 DROP TABLE IF EXISTS public.curriculum_documents CASCADE;
 DROP TABLE IF EXISTS public.children CASCADE;
@@ -13,9 +14,15 @@ CREATE TABLE public.children (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     parent_id UUID NOT NULL, -- Link to the parent (Supabase Auth ID)
     name TEXT NOT NULL,
-    age_level INTEGER NOT NULL CHECK (age_level IN (6, 8, 10)),
+    age_level INTEGER NOT NULL, -- Any age (removed restriction to allow flexibility)
     learning_code TEXT UNIQUE NOT NULL, -- e.g. LEO-123
     target_topic TEXT, -- The current concept the parent wants them to study
+    -- Optional Learning Profile Fields (for personalization)
+    learning_style TEXT, -- e.g., 'visual', 'auditory', 'kinesthetic', 'reading/writing'
+    interests TEXT[], -- Array of interests/hobbies
+    reading_level TEXT, -- e.g., 'beginner', 'intermediate', 'advanced'
+    attention_span TEXT, -- e.g., 'short', 'medium', 'long'
+    strengths TEXT[], -- Array of academic strengths
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -25,8 +32,21 @@ CREATE TABLE public.curriculum_documents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     parent_id UUID NOT NULL,
     file_name TEXT NOT NULL,
+    storage_path TEXT, -- Path in Supabase Storage (e.g., "curriculum/{parent_id}/{file_name}")
+    file_size INTEGER, -- File size in bytes
     weaviate_collection_id TEXT, -- Reference to the collection in Weaviate
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Child Topics (Multiple topics per child, one active at a time)
+CREATE TABLE public.child_topics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
+    topic TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT FALSE, -- Only one topic can be active per child
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(child_id, topic) -- Prevent duplicate topics for same child
 );
 
 -- Many-to-Many relationship between Children and Curriculum
@@ -43,6 +63,8 @@ CREATE TABLE public.sessions (
     concept TEXT NOT NULL,
     age_level INTEGER NOT NULL,
     status TEXT DEFAULT 'active',
+    evaluation_report JSONB, -- Stores the final evaluation report when session ends
+    ended_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -57,5 +79,9 @@ CREATE TABLE public.interactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Index for learning_code lookup
+-- Indexes
 CREATE INDEX idx_children_learning_code ON public.children(learning_code);
+CREATE INDEX idx_child_topics_child_id ON public.child_topics(child_id);
+CREATE INDEX idx_child_topics_active ON public.child_topics(child_id, is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_sessions_child_id ON public.sessions(child_id);
+CREATE INDEX idx_sessions_concept ON public.sessions(concept);
