@@ -180,6 +180,8 @@ const learningSlice = createSlice({
       state.conversationPhase = null;
       state.canEndSession = false;
       state.canTakeQuiz = false;
+      state.isLoading = false;
+      state.isEnding = false;
       state.quiz = initialState.quiz;
     },
   },
@@ -218,6 +220,16 @@ const learningSlice = createSlice({
       })
       .addCase(submitInteraction.fulfilled, (state, action) => {
         state.isLoading = false;
+        
+        // If it was an audio interaction, add the user's transcribed message first
+        if (action.meta.arg.audio && action.payload.transcribed_text) {
+          state.messages.push({
+            role: 'user',
+            content: action.payload.transcribed_text,
+            type: 'text'
+          });
+        }
+
         state.understandingState = action.payload.understanding_state;
         state.canEndSession = action.payload.can_end_session || false;
         state.canTakeQuiz = action.payload.can_take_quiz || false;

@@ -7,8 +7,7 @@ import { Sparkles, ShieldCheck, BookOpen, Key, Loader2, ArrowRight, GraduationCa
 
 const LandingPage: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { error: sessionError, isLoading: isSessionLoading, sessionId, concept } = useAppSelector((state) => state.learning);
-  const { isAuthenticated, role } = useAppSelector((state) => state.user);
+  const { error: sessionError, isLoading: isSessionLoading, sessionId } = useAppSelector((state) => state.learning);
   const [studentCode, setStudentCode] = useState('');
 
   const handleStudentLogin = (e: React.FormEvent) => {
@@ -102,17 +101,17 @@ const LandingPage: React.FC = () => {
             )}
             <button
               type="submit"
-              // disabled={isSessionLoading || !studentCode.trim()}
+              disabled={isSessionLoading || !studentCode.trim()}
               className="w-full h-14 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-bold shadow-lg hover:shadow-glow transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
             >
-              {/* {isSessionLoading ? (
+              {isSessionLoading ? (
                 <Loader2 className="animate-spin" size={20} />
-              ) : ( */}
+              ) : (
                 <>
                   Start Learning 
                   <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
                 </>
-              {/* )} */}
+              )}
             </button>
           </form>
         </motion.div>

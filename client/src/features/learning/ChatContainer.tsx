@@ -70,7 +70,7 @@ const ChatContainer: React.FC = () => {
           setTimeout(() => {
             dispatch(clearLearningState());
             dispatch(logout());
-          }, 20000);
+          }, 5000);
         }, 2000);
       } else {
         throw new Error('Failed to end session');
