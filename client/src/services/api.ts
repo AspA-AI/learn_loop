@@ -52,6 +52,14 @@ export interface TokenResponse {
   token_type: string;
   parent_id: string;
   email: string;
+  preferred_language?: string;
+}
+
+export interface ParentProfile {
+  id: string;
+  email: string;
+  name?: string;
+  preferred_language?: string;
 }
 
 export const authApi = {
@@ -89,6 +97,11 @@ export const authApi = {
   getToken: (): string | null => {
     return localStorage.getItem('parent_token');
   },
+
+  getProfile: async (): Promise<ParentProfile> => {
+    const response = await apiClient.get('/auth/me');
+    return response.data;
+  },
 };
 
 export interface StartSessionParams {
@@ -109,11 +122,19 @@ export interface ChildCreate {
   reading_level?: string;
   attention_span?: string;
   strengths?: string[];
+  learning_language?: string;
 }
 
 export interface ChildUpdate {
+  name?: string;
   target_topic?: string;
   age_level?: number;
+  learning_style?: string;
+  interests?: string[];
+  reading_level?: string;
+  attention_span?: string;
+  strengths?: string[];
+  learning_language?: string;
 }
 
 export const learningApi = {
@@ -154,6 +175,11 @@ export const learningApi = {
 
   updateChild: async (childId: string, data: ChildUpdate) => {
     const response = await apiClient.patch(`/parent/children/${childId}`, data);
+    return response.data;
+  },
+
+  updateParentProfile: async (data: { name?: string; preferred_language?: string }) => {
+    const response = await apiClient.patch('/parent/profile', data);
     return response.data;
   },
 
@@ -276,6 +302,32 @@ export const learningApi = {
 
   cancelQuiz: async (sessionId: string) => {
     const response = await apiClient.post(`/sessions/${sessionId}/quiz/cancel`);
+    return response.data;
+  },
+
+  // --- Formal Reporting ---
+
+  generateReport: async (childId: string, reportType: 'weekly' | 'monthly' = 'monthly') => {
+    const response = await apiClient.get(`/parent/children/${childId}/reports/generate`, {
+      params: { report_type: reportType }
+    });
+    return response.data;
+  },
+
+  getReports: async (childId: string) => {
+    const response = await apiClient.get(`/parent/children/${childId}/reports`);
+    return response.data;
+  },
+
+  getReportDetail: async (reportId: string) => {
+    const response = await apiClient.get(`/parent/reports/${reportId}`);
+    return response.data;
+  },
+
+  translateReport: async (reportId: string, targetLanguage: string) => {
+    const response = await apiClient.get(`/parent/reports/${reportId}/translate`, {
+      params: { target_language: targetLanguage }
+    });
     return response.data;
   },
 };

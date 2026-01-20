@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Provider } from 'react-redux';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { store } from './store';
 import { useAppSelector, useAppDispatch } from './hooks/store';
 import { logout, checkAuth } from './features/user/userSlice';
@@ -17,7 +18,35 @@ const queryClient = new QueryClient();
 // Main Layout component that handles the internal view
 const DashboardLayout: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { role } = useAppSelector((state) => state.user);
+  const { i18n, t } = useTranslation();
+  const { role, currentChild } = useAppSelector((state) => state.user);
+  const { learningLanguage } = useAppSelector((state) => state.learning);
+  const lastAppliedChildLang = useRef<string | null>(null);
+
+  // Sync i18n language with child's learning language if in child role
+  useEffect(() => {
+    const childLanguage = currentChild?.learning_language || learningLanguage;
+    if (role !== 'child' || !childLanguage) return;
+
+    const langCode = {
+      English: 'en',
+      German: 'de',
+      French: 'fr',
+      Portuguese: 'pt',
+      Spanish: 'es',
+      Italian: 'it',
+      Turkish: 'tr',
+    }[childLanguage] || 'en';
+
+    const currentLang = i18n.resolvedLanguage || i18n.language;
+    const alreadyApplied = lastAppliedChildLang.current === langCode;
+    const matchesCurrent = currentLang?.startsWith(langCode);
+
+    if (!alreadyApplied && !matchesCurrent) {
+      lastAppliedChildLang.current = langCode;
+      i18n.changeLanguage(langCode);
+    }
+  }, [role, currentChild?.learning_language, learningLanguage, i18n]);
 
   const handleLogout = () => {
     dispatch(logout());
@@ -35,7 +64,7 @@ const DashboardLayout: React.FC = () => {
             className="glass rounded-xl px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-white/80 transition-all shadow-lg flex items-center gap-2"
           >
             <LogOut size={16} />
-            <span>Sign Out</span>
+            <span>{t('nav.sign_out')}</span>
           </button>
         </div>
         <ChatContainer />
@@ -58,12 +87,38 @@ const DashboardLayout: React.FC = () => {
 
 const AppContent: React.FC = () => {
   const dispatch = useAppDispatch();
-  const { isAuthenticated } = useAppSelector((state) => state.user);
+  const { i18n } = useTranslation();
+  const { isAuthenticated, parentProfile } = useAppSelector((state) => state.user);
+  const lastAppliedParentLang = useRef<string | null>(null);
 
   useEffect(() => {
     // Check if user has a valid token on app load
     dispatch(checkAuth());
   }, [dispatch]);
+
+  // Handle parent preferred language on initial load
+  useEffect(() => {
+    if (!isAuthenticated || !parentProfile?.preferred_language) return;
+
+    const langCode = {
+      English: 'en',
+      German: 'de',
+      French: 'fr',
+      Portuguese: 'pt',
+      Spanish: 'es',
+      Italian: 'it',
+      Turkish: 'tr',
+    }[parentProfile.preferred_language] || 'en';
+
+    const currentLang = i18n.resolvedLanguage || i18n.language;
+    const alreadyApplied = lastAppliedParentLang.current === langCode;
+    const matchesCurrent = currentLang?.startsWith(langCode);
+
+    if (!alreadyApplied && !matchesCurrent) {
+      lastAppliedParentLang.current = langCode;
+      i18n.changeLanguage(langCode);
+    }
+  }, [isAuthenticated, parentProfile?.preferred_language, i18n]);
 
   return isAuthenticated ? <DashboardLayout /> : <LandingPage />;
 };

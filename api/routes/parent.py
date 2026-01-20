@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form, Query
-from models.schemas import ChildProfile, ChildCreate, ChildUpdate, ParentInsight, ChildTopic, TopicCreate
+from models.schemas import ChildProfile, ChildCreate, ChildUpdate, ParentInsight, ChildTopic, TopicCreate, ParentProfile
 from services.supabase_service import supabase_service
 from services.weaviate_service import weaviate_service
 from agents.insight import insight_agent
@@ -49,7 +49,8 @@ async def create_child(request: ChildCreate, current_parent: dict = Depends(get_
             interests=request.interests,
             reading_level=request.reading_level,
             attention_span=request.attention_span,
-            strengths=request.strengths
+            strengths=request.strengths,
+            learning_language=request.learning_language
         )
         return child
     except Exception as e:
@@ -69,6 +70,9 @@ async def update_child(child_id: UUID, request: ChildUpdate, current_parent: dic
             raise HTTPException(status_code=403, detail="You don't have permission to update this child")
         
         update_data = request.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+            
         response = supabase_service.client.table("children").update(update_data).eq("id", str(child_id)).eq("parent_id", parent_id).execute()
         if not response.data:
             raise HTTPException(status_code=404, detail="Child not found")
@@ -294,6 +298,147 @@ async def remove_child_topic(child_id: UUID, topic_id: UUID, current_parent: dic
         logger.error(f"Error removing child topic: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to remove topic.")
 
+# --- Formal Reporting Endpoints ---
+
+@router.get("/children/{child_id}/reports/generate")
+async def generate_report(
+    child_id: str, 
+    report_type: str = "monthly", # 'weekly', 'monthly', 'custom'
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_parent: dict = Depends(get_current_parent)
+):
+    try:
+        parent_id = str(current_parent["id"])
+        child = verify_child_ownership(child_id, parent_id)
+        
+        # Calculate date range if not provided
+        if not end_date:
+            # Use tomorrow's date to ensure today's sessions are included in 'lte'
+            end_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        if not start_date:
+            if report_type == "weekly":
+                start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            else: # monthly default
+                start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        # 1. Fetch all completed sessions in range
+        sessions = supabase_service.get_sessions_by_date_range(child_id, start_date, end_date)
+        
+        if not sessions:
+            raise HTTPException(status_code=404, detail="No completed sessions found for this period.")
+        
+        # 2. Fetch curriculum info
+        curriculum = supabase_service.get_child_curriculum_files(child_id)
+        curriculum_names = [c["file_name"] for c in curriculum] if curriculum else ["Standard Homeschool Curriculum"]
+
+        # 3. Generate formal report using InsightAgent
+        report_data = await insight_agent.generate_formal_periodic_report(
+            child_info=child,
+            parent_info=current_parent,
+            sessions=sessions,
+            curriculum_info=", ".join(curriculum_names),
+            report_type=report_type
+        )
+        
+        # 3. Save report to database
+        saved_report = supabase_service.create_formal_report(
+            parent_id=parent_id,
+            child_id=child_id,
+            report_type=report_type,
+            start_date=start_date,
+            end_date=end_date,
+            content=report_data["content"],
+            metrics_summary=report_data["metrics_summary"]
+        )
+        
+        return saved_report
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate report.")
+
+@router.get("/children/{child_id}/reports")
+async def get_reports(child_id: str, current_parent: dict = Depends(get_current_parent)):
+    try:
+        parent_id = str(current_parent["id"])
+        verify_child_ownership(child_id, parent_id)
+        return supabase_service.get_formal_reports(child_id)
+    except Exception as e:
+        logger.error(f"Error fetching reports: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch reports.")
+
+@router.get("/reports/{report_id}/translate")
+async def translate_report(
+    report_id: str, 
+    target_language: str, 
+    current_parent: dict = Depends(get_current_parent)
+):
+    """Translate a formal report's narrative content on the fly"""
+    try:
+        parent_id = str(current_parent["id"])
+        report = supabase_service.get_formal_report(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Verify ownership
+        if str(report["parent_id"]) != parent_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        # Parse content (handle both JSON and legacy plain text)
+        content_obj = {}
+        try:
+            content_obj = json.loads(report["content"])
+        except:
+            content_obj = {"narrative": report["content"]}
+            
+        # Translate each part
+        translated_obj = {}
+        for key, text in content_obj.items():
+            if text:
+                translated_obj[key] = await insight_agent.translate_report(text, target_language)
+            else:
+                translated_obj[key] = text
+                
+        # Also translate the recommendation if it exists
+        recommendation = report.get("recommendation")
+        translated_recommendation = None
+        if recommendation:
+            translated_recommendation = await insight_agent.translate_report(recommendation, target_language)
+            
+        return {
+            "id": report_id,
+            "content": json.dumps(translated_obj),
+            "recommendation": translated_recommendation,
+            "target_language": target_language
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error translating report {report_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to translate report.")
+
+@router.get("/reports/{report_id}")
+async def get_report_detail(report_id: str, current_parent: dict = Depends(get_current_parent)):
+    try:
+        parent_id = str(current_parent["id"])
+        report = supabase_service.get_formal_report(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Verify ownership
+        if str(report["parent_id"]) != parent_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        return report
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching report detail: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch report.")
+
 @router.get("/children/{child_id}/subjects/{subject}/documents")
 async def get_subject_documents(child_id: UUID, subject: str, current_parent: dict = Depends(get_current_parent)):
     """Get all documents for a specific subject"""
@@ -509,6 +654,39 @@ async def get_session_chat(session_id: UUID):
     except Exception as e:
         logger.error(f"Error fetching session chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch session chat.")
+
+@router.patch("/profile", response_model=ParentProfile)
+async def update_parent_profile(
+    request: Dict[str, Any], 
+    current_parent: dict = Depends(get_current_parent)
+):
+    """Update parent profile details (e.g. name, preferred_language)"""
+    try:
+        parent_id = str(current_parent["id"])
+        
+        # Only allow updating specific fields
+        allowed_fields = ["name", "preferred_language"]
+        update_data = {k: v for k, v in request.items() if k in allowed_fields}
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid fields to update")
+            
+        response = supabase_service.client.table("parents").update(update_data).eq("id", parent_id).execute()
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Parent not found")
+            
+        parent = response.data[0]
+        return ParentProfile(
+            id=str(parent["id"]),
+            email=parent["email"],
+            name=parent.get("name"),
+            preferred_language=parent.get("preferred_language", "English")
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating parent profile: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update profile.")
 
 @router.get("/insights", response_model=Dict[str, Any])
 async def get_insights(week: Optional[str] = Query(None), current_parent: dict = Depends(get_current_parent)):

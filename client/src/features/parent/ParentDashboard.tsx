@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../hooks/store';
-import { fetchChildren, addChild, pinTopic } from '../user/userSlice';
+import { fetchChildren, addChild, updateParentProfile } from '../user/userSlice';
 import { fetchInsights, fetchCurriculum, uploadDocument } from './parentSlice';
 import { 
   Plus, 
@@ -13,8 +14,6 @@ import {
   ArrowRight,
   BookOpen,
   Settings,
-  ShieldCheck,
-  Bell,
   Users,
   Target,
   Check,
@@ -28,14 +27,465 @@ import {
   Trash2,
   CheckCircle2,
   Copy,
-  Edit2
+  Edit2,
+  BarChart2,
+  FileSearch,
+  RefreshCw,
+  Printer,
+  GraduationCap
 } from 'lucide-react';
 import { learningApi } from '../../services/api';
 
-const GrowthInsights: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const { insights, isLoading } = useAppSelector((state) => state.parent);
+const MetricBar: React.FC<{ label: string; value: number; color: string; definition: string }> = ({ label, value, color, definition }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between items-center">
+        <div className="relative flex items-center gap-1.5">
+          <span className="text-sm font-bold text-slate-700">{label}</span>
+          <button 
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+            className="text-slate-400 hover:text-slate-600 transition-colors no-print"
+          >
+            <AlertCircle size={14} />
+          </button>
+          <AnimatePresence>
+            {showTooltip && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute left-0 bottom-full mb-2 w-64 p-3 bg-slate-800 text-white text-xs rounded-xl shadow-xl z-50 pointer-events-none no-print"
+              >
+                {definition}
+                <div className="absolute left-4 top-full border-8 border-transparent border-t-slate-800"></div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <span className="text-sm font-black text-slate-900">{value}/10</span>
+      </div>
+      <div className="h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 print-force-bg">
+        <motion.div 
+          initial={{ width: 0 }}
+          animate={{ width: `${value * 10}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          style={{ width: `${value * 10}%` }}
+          className={`h-full ${color} rounded-full print-force-bg`}
+        />
+      </div>
+    </div>
+  );
+};
+
+const FormalReports: React.FC = () => {
+  const { t } = useTranslation();
   const { profiles } = useAppSelector((state) => state.user);
+  const [selectedChild, setSelectedChild] = useState<string | null>(profiles[0]?.id || null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  const handleTranslate = async (targetLang: string) => {
+    if (!selectedReport) return;
+    setIsTranslating(true);
+    try {
+      const langName = {
+        'en': 'English',
+        'de': 'German',
+        'es': 'Spanish',
+        'fr': 'French',
+        'pt': 'Portuguese',
+        'it': 'Italian',
+        'tr': 'Turkish'
+      }[targetLang] || 'English';
+
+      const data = await learningApi.translateReport(selectedReport.id, langName);
+      setSelectedReport({
+        ...selectedReport,
+        content: data.content,
+        recommendation: data.recommendation
+      });
+    } catch (error) {
+      console.error('Error translating report:', error);
+      alert('Failed to translate report. Please try again.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const renderReportText = (text: string) => {
+    if (!text) return null;
+    
+    // Simple formatter for [H1], [H2], and **
+    let formatted = text
+      .replace(/\[H1\](.*?)\[\/H1\]/g, '<h1 class="text-2xl font-black text-slate-900 mt-8 mb-4 uppercase tracking-tight">$1</h1>')
+      .replace(/\[H2\](.*?)\[\/H2\]/g, '<h2 class="text-lg font-black text-slate-800 mt-6 mb-3 uppercase tracking-wide">$1</h2>')
+      .replace(/\*\*(.*?)\*\*/g, '<b class="font-black text-slate-900">$1</b>')
+      .replace(/\n/g, '<br/>');
+
+    return <div dangerouslySetInnerHTML={{ __html: formatted }} className="text-slate-700 font-medium leading-relaxed" />;
+  };
+
+  const getReportContent = (report: any) => {
+    try {
+      // Check if content is JSON (new structured format)
+      const data = JSON.parse(report.content);
+      return data;
+    } catch (e) {
+      // Fallback for legacy plain text reports
+      return { narrative: report.content };
+    }
+  };
+
+  const loadReports = async (childId: string) => {
+    setIsLoading(true);
+    try {
+      const data = await learningApi.getReports(childId);
+      setReports(data);
+    } catch (error) {
+      console.error('Error loading reports:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedChild) {
+      loadReports(selectedChild);
+    }
+  }, [selectedChild]);
+
+  const handleGenerateReport = async (type: 'weekly' | 'monthly') => {
+    if (!selectedChild) return;
+    setIsGenerating(true);
+    try {
+      await learningApi.generateReport(selectedChild, type);
+      await loadReports(selectedChild);
+    } catch (error: any) {
+      console.error('Error generating report:', error);
+      alert(error.response?.data?.detail || 'Failed to generate report');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handlePrint = () => {
+    const printContent = reportRef.current;
+    if (!printContent) return;
+
+    const windowUrl = window.location.href;
+    const uniqueName = new Date();
+    const windowName = `Print_${uniqueName.getTime()}`;
+    const printWindow = window.open(windowUrl, windowName, 'left=0,top=0,width=800,height=900,toolbar=0,scrollbars=0,status=0');
+    
+    if (printWindow) {
+      const reportHtml = printContent.innerHTML;
+      const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+        .map(style => style.outerHTML)
+        .join('');
+
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>${t('parent.academic_progress_report')}</title>
+            ${styles}
+            <style>
+              body { background: white !important; padding: 40px !important; color: #1e293b !important; }
+              .glass { background: white !important; border: 1px solid #e2e8f0 !important; box-shadow: none !important; }
+              .custom-scrollbar::-webkit-scrollbar { display: none; }
+              .print-force-bg { 
+                -webkit-print-color-adjust: exact !important; 
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
+              @media print {
+                .no-print { display: none !important; }
+                body { padding: 0 !important; }
+                .print-force-bg { 
+                  -webkit-print-color-adjust: exact !important; 
+                  print-color-adjust: exact !important;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="max-w-4xl mx-auto">
+              ${reportHtml}
+            </div>
+            <script>
+              setTimeout(() => {
+                window.print();
+                window.close();
+              }, 750);
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  const METRIC_DEFINITIONS = {
+    accuracy: t('parent.metric_accuracy_definition'),
+    confidence: t('parent.metric_confidence_definition'),
+    persistence: t('parent.metric_persistence_definition'),
+    expression: t('parent.metric_expression_definition')
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <header className="flex justify-between items-end no-print">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-3">
+            <FileText size={14} /> {t('parent.academic_record')}
+          </div>
+          <h2 className="text-4xl font-black text-slate-800 tracking-tight">{t('parent.formal_progress_reports')}</h2>
+        </div>
+        
+        <div className="flex gap-4">
+          <select 
+            value={selectedChild || ''} 
+            onChange={(e) => setSelectedChild(e.target.value)}
+            className="glass px-6 py-3 rounded-2xl text-sm font-bold text-slate-700 border-none shadow-soft focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer"
+          >
+            {profiles.map((child: any) => (
+              <option key={child.id} value={child.id}>{child.name}</option>
+            ))}
+          </select>
+          
+          <div className="flex bg-slate-100 p-1 rounded-2xl">
+            <button 
+              onClick={() => handleGenerateReport('weekly')}
+              disabled={isGenerating || !selectedChild}
+              className="px-6 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 hover:bg-white hover:shadow-soft"
+            >
+              {isGenerating ? t('parent.generating') : t('parent.generate_weekly')}
+            </button>
+            <button 
+              onClick={() => handleGenerateReport('monthly')}
+              disabled={isGenerating || !selectedChild}
+              className="px-6 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
+            >
+              {isGenerating ? t('parent.generating') : t('parent.generate_monthly')}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Report List */}
+        <div className="glass rounded-3xl p-8 shadow-soft h-[600px] overflow-y-auto custom-scrollbar no-print">
+          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+            <Clock size={20} className="text-indigo-500" /> {t('parent.report_history')}
+          </h3>
+          
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+              <RefreshCw className="animate-spin mb-4" />
+              <p className="text-sm font-bold">{t('parent.loading_reports')}</p>
+            </div>
+          ) : reports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400 text-center">
+              <FileSearch size={48} className="mb-4 opacity-20" />
+              <p className="text-sm font-bold">{t('parent.no_reports')}</p>
+              <p className="text-xs mt-1">{t('parent.no_reports_hint')}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reports.map((report) => (
+                <motion.button
+                  key={report.id}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedReport(report)}
+                  className={`w-full text-left p-5 rounded-2xl transition-all border ${
+                    selectedReport?.id === report.id 
+                    ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' 
+                    : 'bg-white border-slate-100 text-slate-700 hover:border-indigo-200 shadow-soft'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${
+                      selectedReport?.id === report.id ? 'bg-indigo-500' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {report.report_type}
+                    </span>
+                    <span className="text-[10px] font-bold opacity-60">
+                      {new Date(report.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="font-black text-sm mb-1">
+                    {new Date(report.start_date).toLocaleDateString()} - {new Date(report.end_date).toLocaleDateString()}
+                  </p>
+                  <div className="flex items-center gap-3 mt-3 opacity-80">
+                    <div className="flex -space-x-1">
+                      {Object.values(report.metrics_summary || {}).map((val: any, i) => (
+                        <div key={i} className={`w-2 h-2 rounded-full ${val >= 8 ? 'bg-emerald-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-bold">
+                      {t('parent.avg_score')}: {(Object.values(report.metrics_summary || {}).reduce((a: any, b: any) => a + b, 0) as number / 4).toFixed(1)}/10
+                    </span>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Report Detail */}
+        <div className="lg:col-span-2 space-y-8">
+          {selectedReport ? (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              ref={reportRef}
+              className="glass rounded-3xl shadow-soft flex flex-col h-[600px] lg:h-auto lg:max-h-[800px] overflow-hidden bg-white"
+            >
+              <div className="p-8 border-b border-slate-100 bg-white flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg no-print">
+                    <GraduationCap size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-800">
+                      {t('parent.academic_progress_report')}
+                    </h3>
+                    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
+                      {selectedReport.report_type} {t('parent.report_type_suffix')} • {new Date(selectedReport.start_date).toLocaleDateString()} - {new Date(selectedReport.end_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 no-print">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-tighter">{t('parent.smart_translate')}</span>
+                    <div className="flex gap-1">
+                      {['en', 'de', 'fr', 'es', 'pt', 'it', 'tr'].map(lang => (
+                        <button
+                          key={lang}
+                          onClick={() => handleTranslate(lang)}
+                          disabled={isTranslating}
+                          className={`w-7 h-7 rounded-lg text-[10px] font-black uppercase flex items-center justify-center transition-all ${
+                            isTranslating ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110 active:scale-95'
+                          } bg-slate-100 text-slate-600 border border-slate-200`}
+                        >
+                          {lang}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handlePrint} 
+                    className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-all shadow-soft no-print"
+                    title={t('parent.print_pdf')}
+                  >
+                    <Printer size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-10 bg-white">
+                {(() => {
+                  const content = getReportContent(selectedReport);
+                  return (
+                    <>
+                      {/* 1. Identification */}
+                      {content.identification && (
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                          {renderReportText(content.identification)}
+                        </div>
+                      )}
+
+                      {/* 2. Methodology */}
+                      {content.methodology && (
+                        <div className="prose prose-slate max-w-none">
+                          {renderReportText(content.methodology)}
+                        </div>
+                      )}
+
+                      {/* 3. Progress Bars (Visual Charts) */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-indigo-50/50 p-8 rounded-3xl border border-indigo-100/50">
+                        <MetricBar 
+                          label={t('parent.conceptual_accuracy')} 
+                          value={selectedReport.metrics_summary?.accuracy || 0} 
+                          color="bg-emerald-500" 
+                          definition={METRIC_DEFINITIONS.accuracy}
+                        />
+                        <MetricBar 
+                          label={t('parent.cognitive_confidence')} 
+                          value={selectedReport.metrics_summary?.confidence || 0} 
+                          color="bg-blue-500" 
+                          definition={METRIC_DEFINITIONS.confidence}
+                        />
+                        <MetricBar 
+                          label={t('parent.engagement_persistence')} 
+                          value={selectedReport.metrics_summary?.persistence || 0} 
+                          color="bg-purple-500" 
+                          definition={METRIC_DEFINITIONS.persistence}
+                        />
+                        <MetricBar 
+                          label={t('parent.communication_expression')} 
+                          value={selectedReport.metrics_summary?.expression || 0} 
+                          color="bg-amber-500" 
+                          definition={METRIC_DEFINITIONS.expression}
+                        />
+                      </div>
+
+                      {/* 4. Narrative Analysis */}
+                      {content.narrative && (
+                        <div className="prose prose-slate max-w-none">
+                          {renderReportText(content.narrative)}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {/* Final Recommendation */}
+                {selectedReport.recommendation && (
+                  <div className="bg-slate-50 p-8 rounded-3xl border border-slate-200">
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <CheckCircle2 size={16} /> {t('parent.educator_recommendation')}
+                    </h4>
+                    <p className="text-lg font-bold text-slate-900 leading-relaxed italic">
+                      "{selectedReport.recommendation}"
+                    </p>
+                  </div>
+                )}
+                
+                <div className="pt-10 border-t border-slate-100 text-center opacity-40 text-[10px] font-bold uppercase tracking-[0.3em] no-print">
+                  {t('parent.generated_by')}
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="glass rounded-3xl p-12 shadow-soft h-[600px] flex flex-col items-center justify-center text-center">
+              <div className="w-24 h-24 bg-indigo-50 rounded-full flex items-center justify-center mb-6">
+                <BarChart2 size={48} className="text-indigo-500 opacity-40" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-2">{t('parent.select_report')}</h3>
+              <p className="text-slate-500 max-w-xs font-medium">
+                {t('parent.select_report_hint')}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const GrowthInsights: React.FC = () => {
+  const { t } = useTranslation();
+  const dispatch = useAppDispatch();
+  const { profiles } = useAppSelector((state) => state.user);
+  const { insights, isLoading } = useAppSelector((state) => state.parent);
 
   useEffect(() => {
     dispatch(fetchInsights());
@@ -45,17 +495,17 @@ const GrowthInsights: React.FC = () => {
     return (
       <div className="space-y-8 animate-fade-in">
         <div className="glass rounded-3xl p-12 shadow-soft text-center">
-          <p className="text-slate-600 font-semibold">Loading insights...</p>
+          <p className="text-slate-600 font-semibold">{t('common.loading')}</p>
         </div>
       </div>
     );
   }
 
   if (!insights) {
-    return (
-      <div className="space-y-8 animate-fade-in">
+        return (
+          <div className="space-y-8 animate-fade-in">
         <div className="glass rounded-3xl p-12 shadow-soft text-center">
-          <p className="text-slate-600 font-semibold">No insights available yet. Start a learning session to see progress!</p>
+          <p className="text-slate-600 font-semibold">{t('parent.no_insights')}</p>
         </div>
       </div>
     );
@@ -65,17 +515,17 @@ const GrowthInsights: React.FC = () => {
     <div className="space-y-8 animate-fade-in">
       <header>
         <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-3">
-          <TrendingUp size={14} /> Analytics Overview
+          <TrendingUp size={14} /> {t('nav.insights')}
         </div>
-        <h2 className="text-4xl font-black text-slate-800 tracking-tight">Growth Insights</h2>
+        <h2 className="text-4xl font-black text-slate-800 tracking-tight">{t('nav.insights')}</h2>
       </header>
 
       {/* Learning Summary for Each Child */}
       {insights.children_stats && insights.children_stats.length > 0 ? (
         <div className="space-y-6">
           {insights.children_stats.map((childStat: any) => {
-            const childProfile = profiles.find(p => p.id === childStat.child_id);
-            const childName = childProfile?.name || 'Child';
+            const childProfile = profiles.find((p: any) => p.id === childStat.child_id);
+            const childName = childProfile?.name || t('parent.child_fallback');
             
             return (
               <motion.div
@@ -84,7 +534,7 @@ const GrowthInsights: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="glass rounded-3xl p-8 shadow-soft hover:shadow-glow transition-all"
               >
-                <h3 className="text-2xl font-black text-slate-800 mb-4">Learning Summary for {childName}</h3>
+                <h3 className="text-2xl font-black text-slate-800 mb-4">{t('parent.learning_summary_for', { name: childName })}</h3>
                 {childStat.latest_report?.summary ? (
                   <p className="text-base font-medium text-slate-600 leading-relaxed mb-6">{childStat.latest_report.summary}</p>
                 ) : (
@@ -96,15 +546,15 @@ const GrowthInsights: React.FC = () => {
                 
                 <div className="grid grid-cols-3 gap-4">
                   <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100">
-                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">Mastery</p>
+                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">{t('parent.mastery')}</p>
                     <p className="text-3xl font-black text-indigo-600">{childStat.mastery_percent}%</p>
                   </div>
                   <div className="p-5 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100">
-                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">Sessions</p>
+                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">{t('parent.sessions')}</p>
                     <p className="text-3xl font-black text-purple-600">{childStat.total_sessions}</p>
                   </div>
                   <div className="p-5 bg-gradient-to-br from-pink-50 to-indigo-50 rounded-2xl border border-pink-100">
-                    <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">Hours</p>
+                    <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.hours')}</p>
                     <p className="text-3xl font-black text-pink-600">{childStat.total_hours}</p>
                   </div>
                 </div>
@@ -114,20 +564,20 @@ const GrowthInsights: React.FC = () => {
         </div>
       ) : (
         <div className="glass rounded-3xl p-8 shadow-soft">
-          <h3 className="text-2xl font-black text-slate-800 mb-4">Learning Summary</h3>
+          <h3 className="text-2xl font-black text-slate-800 mb-4">{t('parent.learning_summary')}</h3>
           <p className="text-base font-medium text-slate-600 leading-relaxed mb-6">{insights.summary}</p>
           
           <div className="grid grid-cols-3 gap-4">
             <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100">
-              <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">Overall Mastery</p>
+              <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">{t('parent.overall_mastery')}</p>
               <p className="text-3xl font-black text-indigo-600">{insights.overall_mastery}%</p>
             </div>
             <div className="p-5 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100">
-              <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">Total Sessions</p>
+              <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">{t('parent.total_sessions')}</p>
               <p className="text-3xl font-black text-purple-600">{insights.total_sessions}</p>
             </div>
             <div className="p-5 bg-gradient-to-br from-pink-50 to-indigo-50 rounded-2xl border border-pink-100">
-              <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">Learning Hours</p>
+              <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.learning_hours')}</p>
               <p className="text-3xl font-black text-pink-600">{insights.total_hours}</p>
             </div>
           </div>
@@ -138,8 +588,9 @@ const GrowthInsights: React.FC = () => {
 };
 
 const ChildrenManagement: React.FC = () => {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { profiles, isLoading } = useAppSelector((state) => state.user);
+  const { profiles } = useAppSelector((state) => state.user);
   const { insights } = useAppSelector((state) => state.parent);
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -149,6 +600,7 @@ const ChildrenManagement: React.FC = () => {
   const [newAttentionSpan, setNewAttentionSpan] = useState<string>('');
   const [newInterests, setNewInterests] = useState<string>('');
   const [newStrengths, setNewStrengths] = useState<string>('');
+  const [newLearningLanguage, setNewLearningLanguage] = useState<string>('English');
   
   // Edit state
   const [editingChildId, setEditingChildId] = useState<string | null>(null);
@@ -159,6 +611,7 @@ const ChildrenManagement: React.FC = () => {
   const [editAttentionSpan, setEditAttentionSpan] = useState<string>('');
   const [editInterests, setEditInterests] = useState<string>('');
   const [editStrengths, setEditStrengths] = useState<string>('');
+  const [editLearningLanguage, setEditLearningLanguage] = useState<string>('English');
   const [isUpdating, setIsUpdating] = useState(false);
   const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
   const [evaluations, setEvaluations] = useState<any[]>([]);
@@ -172,7 +625,6 @@ const ChildrenManagement: React.FC = () => {
   
   // Topic management state
   const [childTopics, setChildTopics] = useState<Record<string, any[]>>({});
-  const [childSubjects, setChildSubjects] = useState<Record<string, string[]>>({});
   const [loadingTopics, setLoadingTopics] = useState<Record<string, boolean>>({});
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, Set<string>>>({}); // childId -> Set of expanded subject names
   const [addingTopic, setAddingTopic] = useState<Record<string, string>>({}); // childId -> subject name where adding topic
@@ -183,7 +635,6 @@ const ChildrenManagement: React.FC = () => {
   const [newSubjectName, setNewSubjectName] = useState<Record<string, string>>({});
   const [uploadingDocument, setUploadingDocument] = useState<Record<string, boolean>>({});
   const [subjectDocuments, setSubjectDocuments] = useState<Record<string, Record<string, any[]>>>({}); // childId -> subject -> documents
-  const [selectedTopicForUpload, setSelectedTopicForUpload] = useState<Record<string, string>>({}); // childId -> topic name
   
   // Copy to clipboard state
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -208,7 +659,8 @@ const ChildrenManagement: React.FC = () => {
         reading_level: newReadingLevel || undefined,
         attention_span: newAttentionSpan || undefined,
         interests: interestsArray.length > 0 ? interestsArray : undefined,
-        strengths: strengthsArray.length > 0 ? strengthsArray : undefined
+        strengths: strengthsArray.length > 0 ? strengthsArray : undefined,
+        learning_language: newLearningLanguage
       }));
       setNewName('');
       setNewAge(8);
@@ -217,6 +669,7 @@ const ChildrenManagement: React.FC = () => {
       setNewAttentionSpan('');
       setNewInterests('');
       setNewStrengths('');
+      setNewLearningLanguage('English');
       setIsAdding(false);
     }
   };
@@ -230,6 +683,7 @@ const ChildrenManagement: React.FC = () => {
     setEditAttentionSpan(child.attention_span || '');
     setEditInterests(Array.isArray(child.interests) ? child.interests.join(', ') : '');
     setEditStrengths(Array.isArray(child.strengths) ? child.strengths.join(', ') : '');
+    setEditLearningLanguage(child.learning_language || 'English');
   };
 
   const handleCancelEdit = () => {
@@ -241,6 +695,7 @@ const ChildrenManagement: React.FC = () => {
     setEditAttentionSpan('');
     setEditInterests('');
     setEditStrengths('');
+    setEditLearningLanguage('English');
   };
 
   const handleUpdateChild = async (e: React.FormEvent, childId: string) => {
@@ -259,7 +714,8 @@ const ChildrenManagement: React.FC = () => {
         reading_level: editReadingLevel || undefined,
         attention_span: editAttentionSpan || undefined,
         interests: interestsArray.length > 0 ? interestsArray : undefined,
-        strengths: strengthsArray.length > 0 ? strengthsArray : undefined
+        strengths: strengthsArray.length > 0 ? strengthsArray : undefined,
+        learning_language: editLearningLanguage
       });
       
       // Refresh children list
@@ -279,9 +735,6 @@ const ChildrenManagement: React.FC = () => {
     try {
       const topics = await learningApi.getChildTopics(childId);
       setChildTopics(prev => ({ ...prev, [childId]: topics }));
-      // Also load subjects
-      const subjects = await learningApi.getChildSubjects(childId);
-      setChildSubjects(prev => ({ ...prev, [childId]: subjects }));
     } catch (error) {
       console.error('Error loading topics:', error);
       setChildTopics(prev => ({ ...prev, [childId]: [] }));
@@ -399,7 +852,6 @@ const ChildrenManagement: React.FC = () => {
     try {
       await learningApi.uploadSubjectDocument(childId, subject, topic, file);
       await loadSubjectDocuments(childId, subject);
-      setSelectedTopicForUpload(prev => ({ ...prev, [`${childId}-${subject}`]: '' }));
       alert('Document uploaded and processed successfully!');
     } catch (error: any) {
       console.error('Error uploading document:', error);
@@ -411,7 +863,7 @@ const ChildrenManagement: React.FC = () => {
 
   // Load topics when child card is expanded
   useEffect(() => {
-    profiles.forEach(profile => {
+    profiles.forEach((profile: any) => {
       if (!childTopics[profile.id]) {
         loadChildTopics(profile.id);
       }
@@ -499,15 +951,15 @@ const ChildrenManagement: React.FC = () => {
       <header className="flex justify-between items-end">
         <div>
           <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-3">
-            <Users size={14} /> Profile Management
+            <Users size={14} /> {t('nav.children')}
           </div>
-          <h2 className="text-4xl font-black text-slate-800 tracking-tight">Your Children</h2>
+          <h2 className="text-4xl font-black text-slate-800 tracking-tight">{t('nav.children')}</h2>
         </div>
         <button 
           onClick={() => setIsAdding(true)}
           className="flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:shadow-glow transition-all"
         >
-          <UserPlus size={18} /> Add Child
+          <UserPlus size={18} /> {t('parent.add_child')}
         </button>
       </header>
 
@@ -519,7 +971,7 @@ const ChildrenManagement: React.FC = () => {
           className="glass rounded-3xl p-8 shadow-soft mb-8"
         >
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-2xl font-black text-slate-800">Register a New Child</h3>
+            <h3 className="text-2xl font-black text-slate-800">{t('parent.register_new_child')}</h3>
             <button
               onClick={() => setIsAdding(false)}
               className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all"
@@ -531,93 +983,109 @@ const ChildrenManagement: React.FC = () => {
             {/* Basic Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Child's Name *</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.child_name_label')} *</label>
                 <input 
                   type="text" 
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   required
                   className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
-                  placeholder="e.g. Leo"
+                  placeholder={t('parent.child_name_placeholder')}
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Age Level *</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.age_level')} *</label>
                 <select 
                   value={newAge}
                   onChange={(e) => setNewAge(Number(e.target.value) as any)}
                   required
                   className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                 >
-                  <option value={6}>Age 6 (Early Explorer)</option>
-                  <option value={8}>Age 8 (Junior Discoverer)</option>
-                  <option value={10}>Age 10 (Advanced Learner)</option>
+                  <option value={6}>{t('parent.age_option_6')}</option>
+                  <option value={8}>{t('parent.age_option_8')}</option>
+                  <option value={10}>{t('parent.age_option_10')}</option>
                 </select>
               </div>
             </div>
 
             {/* Learning Profile */}
             <div className="space-y-4 p-4 bg-indigo-50 rounded-xl border border-indigo-200">
-              <h4 className="text-sm font-black text-indigo-600 uppercase tracking-wider">Learning Profile (Optional)</h4>
+              <h4 className="text-sm font-black text-indigo-600 uppercase tracking-wider">{t('parent.learning_profile_optional')}</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Learning Style</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.learning_style')}</label>
                   <select 
                     value={newLearningStyle}
                     onChange={(e) => setNewLearningStyle(e.target.value)}
                     className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                   >
-                    <option value="">Select learning style...</option>
-                    <option value="visual">Visual</option>
-                    <option value="auditory">Auditory</option>
-                    <option value="kinesthetic">Kinesthetic</option>
-                    <option value="reading/writing">Reading/Writing</option>
+                    <option value="">{t('parent.select_learning_style')}</option>
+                    <option value="visual">{t('parent.learning_style_visual')}</option>
+                    <option value="auditory">{t('parent.learning_style_auditory')}</option>
+                    <option value="kinesthetic">{t('parent.learning_style_kinesthetic')}</option>
+                    <option value="reading/writing">{t('parent.learning_style_reading')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Reading Level</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.reading_level')}</label>
                   <select 
                     value={newReadingLevel}
                     onChange={(e) => setNewReadingLevel(e.target.value)}
                     className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                   >
-                    <option value="">Select reading level...</option>
-                    <option value="beginner">Beginner</option>
-                    <option value="intermediate">Intermediate</option>
-                    <option value="advanced">Advanced</option>
+                    <option value="">{t('parent.select_reading_level')}</option>
+                    <option value="beginner">{t('parent.reading_level_beginner')}</option>
+                    <option value="intermediate">{t('parent.reading_level_intermediate')}</option>
+                    <option value="advanced">{t('parent.reading_level_advanced')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Attention Span</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.attention_span')}</label>
                   <select 
                     value={newAttentionSpan}
                     onChange={(e) => setNewAttentionSpan(e.target.value)}
                     className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                   >
-                    <option value="">Select attention span...</option>
-                    <option value="short">Short (5-10 min)</option>
-                    <option value="medium">Medium (10-20 min)</option>
-                    <option value="long">Long (20+ min)</option>
+                    <option value="">{t('parent.select_attention_span')}</option>
+                    <option value="short">{t('parent.attention_span_short')}</option>
+                    <option value="medium">{t('parent.attention_span_medium')}</option>
+                    <option value="long">{t('parent.attention_span_long')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Interests</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.interests')}</label>
                   <input 
                     type="text" 
                     value={newInterests}
                     onChange={(e) => setNewInterests(e.target.value)}
                     className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
-                    placeholder="e.g. dinosaurs, space, art (comma-separated)"
+                    placeholder={t('parent.interests_placeholder')}
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Academic Strengths</label>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.learning_language_help')}</label>
+                  <select 
+                    value={newLearningLanguage}
+                    onChange={(e) => setNewLearningLanguage(e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
+                  >
+                    <option value="English">{t('parent.language_english')}</option>
+                    <option value="German">{t('parent.language_german')}</option>
+                    <option value="French">{t('parent.language_french')}</option>
+                    <option value="Portuguese">{t('parent.language_portuguese')}</option>
+                    <option value="Spanish">{t('parent.language_spanish')}</option>
+                    <option value="Italian">{t('parent.language_italian')}</option>
+                    <option value="Turkish">{t('parent.language_turkish')}</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.strengths')}</label>
                   <input 
                     type="text" 
                     value={newStrengths}
                     onChange={(e) => setNewStrengths(e.target.value)}
                     className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
-                    placeholder="e.g. math, problem-solving, creativity (comma-separated)"
+                    placeholder={t('parent.strengths_placeholder')}
                   />
                 </div>
               </div>
@@ -642,7 +1110,7 @@ const ChildrenManagement: React.FC = () => {
       )}
 
       <div className="space-y-6">
-        {profiles.map((profile) => {
+        {profiles.map((profile: any) => {
           const isExpanded = selectedChildId === profile.id;
           const showSessions = isExpanded && viewMode === 'sessions' && !selectedSessionId;
           const showEvaluations = isExpanded && viewMode === 'evaluations';
@@ -698,12 +1166,12 @@ const ChildrenManagement: React.FC = () => {
                   >
                     <h4 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
                       <Edit2 size={18} className="text-indigo-600" />
-                      Edit Child Details
+                      {t('parent.edit_child')}
                     </h4>
                     <form onSubmit={(e) => handleUpdateChild(e, profile.id)} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Name</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.child_name')}</label>
                           <input 
                             type="text" 
                             value={editName}
@@ -713,76 +1181,92 @@ const ChildrenManagement: React.FC = () => {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Age Level</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.age_level')}</label>
                           <select 
                             value={editAge}
                             onChange={(e) => setEditAge(parseInt(e.target.value) as 6 | 8 | 10)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                           >
-                            <option value={6}>Age 6 (Level I)</option>
-                            <option value={8}>Age 8 (Level II)</option>
-                            <option value={10}>Age 10 (Level III)</option>
+                            <option value={6}>{t('parent.age_option_6')}</option>
+                            <option value={8}>{t('parent.age_option_8')}</option>
+                            <option value={10}>{t('parent.age_option_10')}</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Learning Style</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.learning_style')}</label>
                           <select 
                             value={editLearningStyle}
                             onChange={(e) => setEditLearningStyle(e.target.value)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                           >
-                            <option value="">Select learning style</option>
-                            <option value="visual">Visual</option>
-                            <option value="auditory">Auditory</option>
-                            <option value="kinesthetic">Kinesthetic</option>
-                            <option value="reading/writing">Reading/Writing</option>
+                            <option value="">{t('parent.select_learning_style')}</option>
+                            <option value="visual">{t('parent.learning_style_visual')}</option>
+                            <option value="auditory">{t('parent.learning_style_auditory')}</option>
+                            <option value="kinesthetic">{t('parent.learning_style_kinesthetic')}</option>
+                            <option value="reading/writing">{t('parent.learning_style_reading')}</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Reading Level</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.reading_level')}</label>
                           <select 
                             value={editReadingLevel}
                             onChange={(e) => setEditReadingLevel(e.target.value)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                           >
-                            <option value="">Select reading level</option>
-                            <option value="beginner">Beginner</option>
-                            <option value="intermediate">Intermediate</option>
-                            <option value="advanced">Advanced</option>
+                            <option value="">{t('parent.select_reading_level')}</option>
+                            <option value="beginner">{t('parent.reading_level_beginner')}</option>
+                            <option value="intermediate">{t('parent.reading_level_intermediate')}</option>
+                            <option value="advanced">{t('parent.reading_level_advanced')}</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Attention Span</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.attention_span')}</label>
                           <select 
                             value={editAttentionSpan}
                             onChange={(e) => setEditAttentionSpan(e.target.value)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
                           >
-                            <option value="">Select attention span</option>
-                            <option value="short">Short (5-10 min)</option>
-                            <option value="medium">Medium (10-20 min)</option>
-                            <option value="long">Long (20+ min)</option>
+                            <option value="">{t('parent.select_attention_span')}</option>
+                            <option value="short">{t('parent.attention_span_short')}</option>
+                            <option value="medium">{t('parent.attention_span_medium')}</option>
+                            <option value="long">{t('parent.attention_span_long')}</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Interests</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.interests')}</label>
                           <input 
                             type="text" 
                             value={editInterests}
                             onChange={(e) => setEditInterests(e.target.value)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
-                            placeholder="e.g. dinosaurs, space, art (comma-separated)"
+                            placeholder={t('parent.interests_placeholder')}
                           />
                         </div>
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Academic Strengths</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.strengths')}</label>
                           <input 
                             type="text" 
                             value={editStrengths}
                             onChange={(e) => setEditStrengths(e.target.value)}
                             className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
-                            placeholder="e.g. math, problem-solving, creativity (comma-separated)"
+                            placeholder={t('parent.strengths_placeholder')}
                           />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">{t('parent.learning_language')}</label>
+                          <select 
+                            value={editLearningLanguage}
+                            onChange={(e) => setEditLearningLanguage(e.target.value)}
+                            className="w-full h-12 px-4 rounded-xl border-2 border-slate-200 focus:border-indigo-500 outline-none font-semibold bg-white"
+                          >
+                            <option value="English">{t('parent.language_english')}</option>
+                            <option value="German">{t('parent.language_german')}</option>
+                            <option value="French">{t('parent.language_french')}</option>
+                            <option value="Portuguese">{t('parent.language_portuguese')}</option>
+                            <option value="Spanish">{t('parent.language_spanish')}</option>
+                            <option value="Italian">{t('parent.language_italian')}</option>
+                            <option value="Turkish">{t('parent.language_turkish')}</option>
+                          </select>
                         </div>
                       </div>
                       <div className="flex items-center justify-end gap-3 pt-2">
@@ -792,7 +1276,7 @@ const ChildrenManagement: React.FC = () => {
                           className="h-12 px-6 bg-slate-100 text-slate-700 rounded-xl font-semibold hover:bg-slate-200 transition-all"
                           disabled={isUpdating}
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </button>
                         <button 
                           type="submit" 
@@ -802,12 +1286,12 @@ const ChildrenManagement: React.FC = () => {
                           {isUpdating ? (
                             <>
                               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              Updating...
+                              {t('parent.updating')}
                             </>
                           ) : (
                             <>
                               <Check size={16} />
-                              Save Changes
+                              {t('common.save')}
                             </>
                           )}
                         </button>
@@ -821,7 +1305,7 @@ const ChildrenManagement: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-indigo-600">
                       <Target size={14} /> 
-                      <span className="text-xs font-bold uppercase tracking-wider">Learning Topics</span>
+                      <span className="text-xs font-bold uppercase tracking-wider">{t('parent.learning_topics')}</span>
                     </div>
                     <button
                       onClick={() => {
@@ -830,7 +1314,7 @@ const ChildrenManagement: React.FC = () => {
                       }}
                       className="text-xs font-bold text-purple-600 hover:text-purple-700 transition-colors flex items-center gap-1"
                     >
-                      <Plus size={14} /> Add Subject
+                      <Plus size={14} /> {t('parent.add_subject')}
                     </button>
                   </div>
 
@@ -846,7 +1330,7 @@ const ChildrenManagement: React.FC = () => {
                           type="text"
                           value={newSubjectName[profile.id] || ''}
                           onChange={(e) => setNewSubjectName(prev => ({ ...prev, [profile.id]: e.target.value }))}
-                          placeholder="Enter subject name (e.g. Mathematics, Science...)"
+                          placeholder={t('parent.subject_placeholder')}
                           className="flex-1 h-10 px-4 rounded-lg border-2 border-purple-200 focus:border-purple-500 outline-none font-semibold text-sm bg-white"
                           onKeyPress={(e) => e.key === 'Enter' && handleAddSubject(profile.id)}
                           autoFocus
@@ -877,7 +1361,7 @@ const ChildrenManagement: React.FC = () => {
 
                   {/* Subjects as Expandable Cards */}
                   {loadingTopics[profile.id] ? (
-                    <div className="text-center py-4 text-slate-500 text-sm">Loading topics...</div>
+                    <div className="text-center py-4 text-slate-500 text-sm">{t('parent.loading_topics')}</div>
                   ) : childTopics[profile.id] && childTopics[profile.id].length > 0 ? (
                     <div className="space-y-2">
                       {(() => {
@@ -1049,7 +1533,7 @@ const ChildrenManagement: React.FC = () => {
                                             onClick={() => handleActivateTopic(profile.id, topic.id)}
                                             className="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-200 transition-all"
                                           >
-                                            Set Active
+                                            {t('parent.set_active')}
                                           </button>
                                         )}
                                         <button
@@ -1077,7 +1561,7 @@ const ChildrenManagement: React.FC = () => {
                                           type="text"
                                           value={newTopic[profile.id] || ''}
                                           onChange={(e) => setNewTopic(prev => ({ ...prev, [profile.id]: e.target.value }))}
-                                          placeholder="Enter topic name..."
+                                          placeholder={t('parent.topic_placeholder')}
                                           className="flex-1 h-10 px-4 rounded-lg border-2 border-indigo-200 focus:border-indigo-500 outline-none font-semibold text-sm bg-white"
                                           onKeyPress={(e) => e.key === 'Enter' && handleAddTopic(profile.id, subject)}
                                           autoFocus
@@ -1113,7 +1597,7 @@ const ChildrenManagement: React.FC = () => {
                                       className="w-full p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl border-2 border-dashed border-indigo-300 text-indigo-600 font-bold text-sm transition-all flex items-center justify-center gap-2"
                                     >
                                       <Plus size={16} />
-                                      Add Topic
+                                      {t('parent.add_topic')}
                                     </button>
                                   )}
 
@@ -1179,12 +1663,12 @@ const ChildrenManagement: React.FC = () => {
                   <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100 text-center">
                     <Award size={16} className="mx-auto mb-2 text-indigo-600" />
                     <p className="text-2xl font-black text-indigo-600">{getChildStats(profile.id).mastery}%</p>
-                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Mastery</p>
+                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{t('parent.mastery')}</p>
                   </div>
                   <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 text-center">
                     <Clock size={16} className="mx-auto mb-2 text-purple-600" />
                     <p className="text-2xl font-black text-purple-600">{getChildStats(profile.id).hours}</p>
-                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider">Hours</p>
+                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider">{t('parent.hours')}</p>
                   </div>
                 </div>
 
@@ -1205,7 +1689,7 @@ const ChildrenManagement: React.FC = () => {
                         : 'bg-white border-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50'
                     }`}
                   >
-                    <Calendar size={16} /> Sessions
+                    <Calendar size={16} /> {t('parent.sessions')}
                   </button>
                   <button 
                     onClick={() => {
@@ -1239,9 +1723,9 @@ const ChildrenManagement: React.FC = () => {
                     className="glass rounded-3xl p-6 shadow-soft mt-4 overflow-hidden"
                   >
                     <div className="flex items-center justify-between mb-6">
-                      <h4 className="text-xl font-black text-slate-800">
-                        {profile.name}'s Learning Sessions
-                      </h4>
+                        <h4 className="text-xl font-black text-slate-800">
+                          {t('parent.learning_sessions_for', { name: profile.name })}
+                        </h4>
                       <button
                         onClick={() => { setSelectedChildId(null); setViewMode(null); setSessions([]); }}
                         className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-all"
@@ -1252,7 +1736,7 @@ const ChildrenManagement: React.FC = () => {
                     
                     {loadingSessions ? (
                       <div className="text-center py-12">
-                        <p className="text-slate-600 font-semibold">Loading sessions...</p>
+                        <p className="text-slate-600 font-semibold">{t('parent.loading_sessions')}</p>
                       </div>
                     ) : sessions.length === 0 ? (
                       <div className="text-center py-12 bg-slate-50 rounded-2xl">
@@ -1276,7 +1760,7 @@ const ChildrenManagement: React.FC = () => {
                               <div className="flex items-center gap-3 mb-3">
                                 <h5 className="text-lg font-black text-indigo-600">{topic}</h5>
                                 <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold">
-                                  {topicSessions.length} {topicSessions.length === 1 ? 'session' : 'sessions'}
+                                  {topicSessions.length} {topicSessions.length === 1 ? t('parent.session') : t('parent.sessions')}
                                 </span>
                               </div>
                               <div className="space-y-2 pl-4 border-l-2 border-indigo-200">
@@ -1299,11 +1783,23 @@ const ChildrenManagement: React.FC = () => {
                                           }`}>
                                             {session.status === 'completed' ? 'Completed' : 'Active'}
                                           </span>
+                                          {session.metrics && (
+                                            <div className="flex gap-1">
+                                              {Object.values(session.metrics).map((val: any, i) => (
+                                                <div key={i} className={`w-1.5 h-1.5 rounded-full ${val >= 8 ? 'bg-emerald-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                         <p className="text-sm text-slate-600">
                                           {new Date(session.created_at).toLocaleDateString()} 
                                           {session.ended_at && ` • Ended: ${new Date(session.ended_at).toLocaleDateString()}`}
                                         </p>
+                                        {session.academic_summary && (
+                                          <p className="text-xs text-slate-500 mt-2 font-medium line-clamp-1 italic">
+                                            "{session.academic_summary}"
+                                          </p>
+                                        )}
                                       </div>
                                       <ArrowRight size={20} className="text-slate-400" />
                                     </div>
@@ -1333,12 +1829,12 @@ const ChildrenManagement: React.FC = () => {
                         <button
                           onClick={() => { setSelectedSessionId(null); setSessionChat(null); }}
                           className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center transition-all"
-                          title="Back to Sessions"
+                          title={t('parent.back_to_sessions')}
                         >
                           <ArrowRight size={20} className="rotate-180" />
                         </button>
                         <div>
-                          <h4 className="text-xl font-black text-slate-800">Chat Conversation</h4>
+                          <h4 className="text-xl font-black text-slate-800">{t('parent.chat_conversation')}</h4>
                           {sessionChat && (
                             <p className="text-sm text-slate-600 mt-1">
                               {sessionChat.concept} • {new Date(sessionChat.created_at).toLocaleDateString()}
@@ -1358,11 +1854,11 @@ const ChildrenManagement: React.FC = () => {
                       {loadingChat ? (
                         <div className="text-center py-12">
                           <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                          <p className="text-slate-600 font-semibold">Loading chat conversation...</p>
+                          <p className="text-slate-600 font-semibold">{t('parent.loading_chat')}</p>
                         </div>
                       ) : !sessionChat || !sessionChat.interactions || sessionChat.interactions.length === 0 ? (
                         <div className="text-center py-12">
-                          <p className="text-slate-600 font-semibold">No messages in this session.</p>
+                          <p className="text-slate-600 font-semibold">{t('parent.no_messages_session')}</p>
                         </div>
                       ) : (
                         sessionChat.interactions.map((interaction: any, idx: number) => (
@@ -1380,7 +1876,7 @@ const ChildrenManagement: React.FC = () => {
                               <p className="text-sm leading-relaxed font-medium">{interaction.content}</p>
                               {interaction.transcribed_text && (
                                 <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-400">
-                                  Voice: "{interaction.transcribed_text}"
+                                  {t('parent.voice_label')}: "{interaction.transcribed_text}"
                                 </div>
                               )}
                             </div>
@@ -1402,7 +1898,7 @@ const ChildrenManagement: React.FC = () => {
                   >
                     <div className="flex items-center justify-between mb-6">
                       <h4 className="text-xl font-black text-slate-800">
-                        {profile.name}'s Evaluation Reports
+                        {t('parent.evaluation_reports_for', { name: profile.name })}
                       </h4>
                       <button
                         onClick={() => { setSelectedChildId(null); setViewMode(null); setEvaluations([]); }}
@@ -1414,11 +1910,11 @@ const ChildrenManagement: React.FC = () => {
                     
                     {loadingEvaluations ? (
                       <div className="text-center py-12">
-                        <p className="text-slate-600 font-semibold">Loading evaluations...</p>
+                        <p className="text-slate-600 font-semibold">{t('parent.loading_evaluations')}</p>
                       </div>
                     ) : evaluations.length === 0 ? (
                       <div className="text-center py-12 bg-slate-50 rounded-2xl">
-                        <p className="text-slate-600 font-semibold">No completed sessions yet. Start a learning session to see evaluations!</p>
+                        <p className="text-slate-600 font-semibold">{t('parent.no_completed_sessions')}</p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -1448,11 +1944,11 @@ const ChildrenManagement: React.FC = () => {
                                   <div className="flex items-center gap-4 text-sm text-slate-600">
                                     <div className="flex items-center gap-2">
                                       <Calendar size={14} />
-                                      {evaluationItem.ended_at ? new Date(evaluationItem.ended_at).toLocaleDateString() : 'Date unknown'}
+                                      {evaluationItem.ended_at ? new Date(evaluationItem.ended_at).toLocaleDateString() : t('parent.date_unknown')}
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <Award size={14} />
-                                      {report?.mastery_percent || 0}% Mastery
+                                      {report?.mastery_percent || 0}% {t('parent.mastery')}
                                     </div>
                                   </div>
                                 </div>
@@ -1472,7 +1968,7 @@ const ChildrenManagement: React.FC = () => {
                                   <div className="space-y-2">
                                     <div className="flex items-center gap-2 text-emerald-600">
                                       <CheckCircle size={14} />
-                                      <h6 className="text-xs font-bold uppercase tracking-wider">Achievements</h6>
+                                      <h6 className="text-xs font-bold uppercase tracking-wider">{t('parent.achievements')}</h6>
                                     </div>
                                     <ul className="space-y-1">
                                       {report.achievements.map((achievement: string, i: number) => (
@@ -1489,7 +1985,7 @@ const ChildrenManagement: React.FC = () => {
                                   <div className="space-y-2">
                                     <div className="flex items-center gap-2 text-orange-600">
                                       <AlertCircle size={14} />
-                                      <h6 className="text-xs font-bold uppercase tracking-wider">Areas to Improve</h6>
+                                      <h6 className="text-xs font-bold uppercase tracking-wider">{t('parent.areas_to_improve')}</h6>
                                     </div>
                                     <ul className="space-y-1">
                                       {report.challenges.map((challenge: string, i: number) => (
@@ -1507,7 +2003,7 @@ const ChildrenManagement: React.FC = () => {
                                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100 space-y-2">
                                   <div className="flex items-center gap-2 text-indigo-600">
                                     <Lightbulb size={14} />
-                                    <h6 className="text-xs font-bold uppercase tracking-wider">Recommended Next Steps</h6>
+                                    <h6 className="text-xs font-bold uppercase tracking-wider">{t('parent.recommended_next_steps')}</h6>
                                   </div>
                                   <ul className="space-y-1">
                                     {report.recommended_next_steps.map((step: string, i: number) => (
@@ -1540,7 +2036,7 @@ const ChildrenManagement: React.FC = () => {
             <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center text-white group-hover:shadow-glow transition-all">
               <Plus size={28} />
             </div>
-            <p className="font-bold text-slate-600 group-hover:text-indigo-600">Register New Child</p>
+            <p className="font-bold text-slate-600 group-hover:text-indigo-600">{t('parent.register_new_child')}</p>
           </motion.button>
         )}
       </div>
@@ -1549,6 +2045,7 @@ const ChildrenManagement: React.FC = () => {
 };
 
 const CurriculumExplorer: React.FC = () => {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const { profiles } = useAppSelector((state) => state.user);
   const { curriculum, isLoading } = useAppSelector((state) => state.parent);
@@ -1662,10 +2159,10 @@ const CurriculumExplorer: React.FC = () => {
       <header className="flex justify-between items-end">
         <div>
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-600 mb-2">
-            <BookOpen size={14} /> Resource Center
+            <BookOpen size={14} /> {t('parent.resource_center')}
           </div>
-          <h2 className="text-4xl font-black text-slate-800 tracking-tight">Curriculum Materials</h2>
-          <p className="text-sm text-slate-500 mt-2">Upload reference materials that will guide the AI in conversations with your children</p>
+          <h2 className="text-4xl font-black text-slate-800 tracking-tight">{t('parent.curriculum_materials')}</h2>
+          <p className="text-sm text-slate-500 mt-2">{t('parent.curriculum_description')}</p>
         </div>
       </header>
 
@@ -1680,7 +2177,7 @@ const CurriculumExplorer: React.FC = () => {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg">
               <Upload size={18} />
             </div>
-            Upload Document
+            {t('parent.upload_document')}
           </h3>
           
           <form onSubmit={handleUpload} className="space-y-5">
@@ -1720,9 +2217,9 @@ const CurriculumExplorer: React.FC = () => {
                 ) : (
                   <>
                     <p className="text-sm font-bold text-slate-700">
-                      Drop file here or click to browse
+                      {t('parent.drop_file')}
                     </p>
-                    <p className="text-xs text-slate-500">PDF, TXT, or MD • Max 10MB</p>
+                    <p className="text-xs text-slate-500">{t('parent.file_types_hint')}</p>
                   </>
                 )}
               </div>
@@ -1731,21 +2228,21 @@ const CurriculumExplorer: React.FC = () => {
             {/* Child Selection */}
             <div className="space-y-3">
               <label className="text-xs font-black uppercase tracking-wider text-slate-600 px-1 flex items-center justify-between">
-                <span>Assign to Children</span>
+                <span>{t('parent.assign_children')}</span>
                 {assignedChildIds.length > 0 && (
                   <span className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg text-[10px]">
-                    {assignedChildIds.length} selected
+                    {t('parent.selected_count', { count: assignedChildIds.length })}
                   </span>
                 )}
               </label>
               {profiles.length === 0 ? (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                  <p className="text-xs text-amber-700 font-semibold">No children registered yet. Add a child first!</p>
+                  <p className="text-xs text-amber-700 font-semibold">{t('parent.no_children_registered')}</p>
                 </div>
               ) : (
                 <>
                   <div className="flex flex-wrap gap-2">
-                    {profiles.map(p => {
+                    {profiles.map((p: any) => {
                       const childrenWithCurriculum = getChildrenWithCurriculum();
                       const hasExisting = childrenWithCurriculum.has(p.id);
                       const isSelected = assignedChildIds.includes(p.id);
@@ -1778,7 +2275,7 @@ const CurriculumExplorer: React.FC = () => {
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-2">
                       <AlertCircle size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
                       <p className="text-xs text-blue-700 font-semibold">
-                        Some selected children already have curriculum. It will be replaced with the new file.
+                        {t('parent.replace_warning')}
                       </p>
                     </div>
                   )}
@@ -1787,7 +2284,7 @@ const CurriculumExplorer: React.FC = () => {
               {selectedFile && assignedChildIds.length === 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2">
                   <AlertCircle size={14} className="text-amber-600 flex-shrink-0" />
-                  <p className="text-xs text-amber-700 font-semibold">Please select at least one child</p>
+                  <p className="text-xs text-amber-700 font-semibold">{t('parent.select_child_prompt')}</p>
                 </div>
               )}
             </div>
@@ -1800,12 +2297,12 @@ const CurriculumExplorer: React.FC = () => {
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Processing...
+                  {t('parent.processing')}
                 </>
               ) : (
                 <>
                   <Upload size={16} />
-                  Upload Curriculum
+                  {t('parent.upload_curriculum')}
                 </>
               )}
             </button>
@@ -1824,11 +2321,11 @@ const CurriculumExplorer: React.FC = () => {
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white shadow-lg">
                 <FileText size={18} />
               </div>
-              Uploaded Curriculum
+              {t('parent.uploaded_curriculum')}
             </h3>
             {curriculum.length > 0 && (
               <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-lg">
-                {curriculum.length} {curriculum.length === 1 ? 'document' : 'documents'}
+                {t('parent.document_count', { count: curriculum.length })}
               </span>
             )}
           </div>
@@ -1843,13 +2340,13 @@ const CurriculumExplorer: React.FC = () => {
                 <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center mx-auto mb-4">
                   <FileText size={32} className="text-slate-400" />
                 </div>
-                <p className="font-black text-slate-400 uppercase tracking-wider text-sm mb-1">No curriculum uploaded yet</p>
-                <p className="text-xs text-slate-500">Upload your first document to get started</p>
+                <p className="font-black text-slate-400 uppercase tracking-wider text-sm mb-1">{t('parent.no_curriculum')}</p>
+                <p className="text-xs text-slate-500">{t('parent.no_curriculum_hint')}</p>
               </motion.div>
             ) : (
               <AnimatePresence>
                 {curriculum.map((doc, index) => {
-                  const assignedChildren = doc.children?.map(c => profiles.find(p => p.id === c.child_id)?.name).filter(Boolean) || [];
+                  const assignedChildren = doc.children?.map(c => profiles.find((p: any) => p.id === c.child_id)?.name).filter(Boolean) || [];
                   return (
                     <motion.div
                       key={doc.id}
@@ -1896,7 +2393,7 @@ const CurriculumExplorer: React.FC = () => {
                                   </div>
                                 </div>
                               ) : (
-                                <span className="text-amber-600 font-semibold">Not assigned</span>
+                                <span className="text-amber-600 font-semibold">{t('parent.not_assigned')}</span>
                               )}
                             </div>
                             {assignedChildren.length > 0 && (
@@ -1910,7 +2407,7 @@ const CurriculumExplorer: React.FC = () => {
                           onClick={() => handleDelete(doc.id)}
                           disabled={deletingId === doc.id}
                           className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Remove curriculum"
+                          title={t('parent.remove_curriculum')}
                         >
                           {deletingId === doc.id ? (
                             <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
@@ -1932,47 +2429,87 @@ const CurriculumExplorer: React.FC = () => {
 };
 
 const PortalSettings: React.FC = () => {
+  const { t, i18n } = useTranslation();
+  const dispatch = useAppDispatch();
+
+  const languages = [
+    { code: 'en', name: 'English' },
+    { code: 'de', name: 'German' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'pt', name: 'Portuguese' },
+    { code: 'it', name: 'Italian' },
+    { code: 'tr', name: 'Turkish' },
+  ];
+
+  const handleLanguageChange = async (langCode: string) => {
+    console.log('Changing language to:', langCode);
+    await i18n.changeLanguage(langCode);
+    
+    try {
+      const langName = {
+        'en': 'English',
+        'de': 'German',
+        'es': 'Spanish',
+        'fr': 'French',
+        'pt': 'Portuguese',
+        'it': 'Italian',
+        'tr': 'Turkish'
+      }[langCode] || 'English';
+      
+      await dispatch(updateParentProfile({ preferred_language: langName }));
+    } catch (error) {
+      console.error('Failed to save language preference:', error);
+    }
+  };
+
   return (
-    <div className="space-y-10 animate-fade-in">
+    <div className="space-y-10 animate-fade-in pb-20">
       <header className="flex justify-between items-end">
         <div>
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-secondary mb-2">
-            <Settings size={12} /> Preferences
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-2">
+            <Settings size={12} /> {t('nav.settings')}
           </div>
-          <h2 className="text-4xl font-black text-primary tracking-tight">Portal Settings</h2>
+          <h2 className="text-4xl font-black text-slate-800 tracking-tight">{t('nav.settings')}</h2>
         </div>
       </header>
 
-      <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-border space-y-8">
-        <div className="flex items-center justify-between p-6 bg-muted/30 rounded-2xl">
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-soft border border-slate-100 space-y-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between p-8 bg-slate-50 rounded-3xl gap-6">
           <div>
-            <p className="font-bold text-primary">Email Notifications</p>
-            <p className="text-sm text-muted-foreground">Receive weekly growth summaries</p>
+            <p className="font-black text-slate-800 text-lg">{t('parent.preferred_language')}</p>
+            <p className="text-sm text-slate-500 font-medium">{t('parent.select_interface_lang')}</p>
           </div>
-          <div className="w-12 h-6 bg-secondary rounded-full relative cursor-pointer">
-            <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between p-6 bg-muted/30 rounded-2xl">
-          <div>
-            <p className="font-bold text-primary">AI Grounding Strictness</p>
-            <p className="text-sm text-muted-foreground">Level of adherence to curriculum</p>
-          </div>
-          <div className="flex gap-2">
-            {['Flexible', 'Standard', 'Strict'].map((level) => (
-              <button key={level} className={`px-4 py-2 rounded-lg text-xs font-bold ${level === 'Standard' ? 'bg-primary text-white' : 'bg-white border border-border text-muted-foreground'}`}>
-                {level}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2 justify-start md:justify-end max-w-md">
+            {languages.map((lang) => {
+              const isActive = i18n.language.startsWith(lang.code);
+              return (
+                <button
+                  key={lang.code}
+                  onClick={() => handleLanguageChange(lang.code)}
+                  className={`px-6 py-3 rounded-2xl text-xs font-black transition-all ${
+                    isActive 
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
+                    : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-indigo-300'
+                  }`}
+                >
+                  {lang.name}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div className="p-6 border-t border-border mt-8 flex justify-end">
-          <button className="flex items-center gap-2 text-red-500 font-bold hover:bg-red-50 p-3 rounded-xl transition-all">
-            <ShieldCheck size={18} /> Reset Learning Memories
+        <div className="flex items-center justify-between p-8 bg-slate-50 rounded-3xl">
+          <div>
+            <p className="font-black text-slate-800 text-lg">{t('parent.email_notifications')}</p>
+            <p className="text-sm text-slate-500 font-medium">{t('parent.email_notifications_desc')}</p>
+          </div>
+          <button className="w-14 h-8 bg-indigo-600 rounded-full relative transition-all shadow-inner">
+            <div className="absolute right-1 top-1 w-6 h-6 bg-white rounded-full shadow-md" />
           </button>
         </div>
+        
       </div>
     </div>
   );
@@ -1992,6 +2529,7 @@ const ParentDashboard: React.FC = () => {
       case 'insights': return <GrowthInsights />;
       case 'children': return <ChildrenManagement />;
       case 'curriculum': return <CurriculumExplorer />;
+      case 'reports': return <FormalReports />;
       case 'settings': return <PortalSettings />;
       default: return <GrowthInsights />;
     }

@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from datetime import datetime
 from services.openai_service import openai_service
 from typing import List, Dict, Any
 
@@ -7,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 class InsightAgent:
     def __init__(self):
+        self.ground_truth_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reporting_ground_truth.txt")
         self.system_prompt = (
             "You are a supportive educational consultant for parents. "
             "Your job is to summarize a child's learning session into actionable insights.\n\n"
@@ -41,6 +44,15 @@ class InsightAgent:
             "key_insights": [],
             "concept_mastery_level": "developing"
         }
+
+    def _get_ground_truth(self) -> str:
+        """Read the reporting ground truth file"""
+        try:
+            with open(self.ground_truth_path, "r") as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error reading ground truth file: {e}")
+            return "Conceptual Accuracy, Cognitive Confidence, Engagement & Persistence, Communication Expression. All scale 1-10."
 
     def _validate_and_normalize_report(self, report: Dict[str, Any]) -> Dict[str, Any]:
         """Ensure report matches standard format"""
@@ -118,6 +130,143 @@ class InsightAgent:
                 "key_insights": [],
                 "concept_mastery_level": "developing"
             }
+
+    async def generate_formal_periodic_report(self, child_info: Dict[str, Any], parent_info: Dict[str, Any], sessions: List[Dict[str, Any]], curriculum_info: str, report_type: str) -> Dict[str, Any]:
+        """
+        Generate a professional, inspector-ready progress report.
+        """
+        ground_truth = self._get_ground_truth()
+        current_year = datetime.now().year
+        
+        # Aggregate session summaries and metrics
+        session_summaries = []
+        avg_metrics = {"accuracy": 0, "confidence": 0, "persistence": 0, "expression": 0}
+        total_sessions = len(sessions)
+        
+        for s in sessions:
+            if s.get("academic_summary"):
+                session_summaries.append(f"- Topic: {s['concept']}: {s['academic_summary']}")
+            
+            metrics = s.get("metrics") or {}
+            for k in avg_metrics:
+                avg_metrics[k] += metrics.get(k, 5)
+        
+        if total_sessions > 0:
+            for k in avg_metrics:
+                avg_metrics[k] = round(avg_metrics[k] / total_sessions, 1)
+        
+        system_prompt = (
+            "You are a professional educational assessor generating a formal progress report for a homeschooling inspector. "
+            "Your report must be formal, objective, and evidence-based. "
+            "\n\nSTYLING RULES:\n"
+            "1. Use [H1] text [/H1] for main section headings.\n"
+            "2. Use [H2] text [/H2] for subheadings.\n"
+            "3. Use **text** for bold emphasis.\n"
+            "4. Do NOT use # symbols.\n\n"
+            "Structure your report into these EXACT sections in this order:\n\n"
+            "1. STUDENT & PROGRAM IDENTIFICATION\n"
+            "Student Name: [Name]\n"
+            "Student Age: [Age]\n"
+            "Parent/Guardian: [Name]\n"
+            "Curriculum Name: [Name]\n"
+            "Academic Year: [Year]\n\n"
+            "2. EVALUATION METHODOLOGY & METRIC DEFINITIONS\n"
+            "The following metrics are used to evaluate student performance on a scale of 1 to 10:\n"
+            "CONCEPTUAL ACCURACY: The degree to which the student's responses align with factual and logical requirements.\n"
+            "COGNITIVE CONFIDENCE: The certainty and speed displayed in responses, measuring the transition from guessing to knowing.\n"
+            "ENGAGEMENT AND PERSISTENCE: The student's willingness to tackle challenges and stay focused on objectives.\n"
+            "COMMUNICATION EXPRESSION: The ability to articulate thoughts clearly and explain concepts in the student's own words.\n\n"
+            "3. EXECUTIVE SUMMARY\n"
+            "A high-level overview of the student's progress during this period.\n\n"
+            "4. CURRICULUM COVERED\n"
+            "Detail the specific topics and concepts explored, explicitly referencing the curriculum name provided.\n\n"
+            "5. PROGRESS MATRIX ANALYSIS\n"
+            "Discuss the 4 metrics above using evidence from the sessions. Mention growth deltas if visible.\n\n"
+            "6. AREAS OF STRENGTH\n"
+            "Highlight where the student excelled.\n\n"
+            "7. AREAS FOR DEVELOPMENT\n"
+            "Objective discussion of challenges and next steps.\n\n"
+            "Respond ONLY in JSON format with the following keys:\n"
+            "- identification: string (Section 1 content)\n"
+            "- methodology: string (Section 2 content)\n"
+            "- narrative: string (Sections 3-7 content)\n"
+            "- metrics_summary: { accuracy: float, confidence: float, persistence: float, expression: float }\n"
+            "- recommendation: string (A 1-sentence final recommendation)"
+        )
+        
+        user_prompt = (
+            f"STUDENT: {child_info['name']} (Age: {child_info['age_level']})\n"
+            f"PARENT/GUARDIAN: {parent_info.get('name', 'Parent')}\n"
+            f"CURRICULUM: {curriculum_info}\n"
+            f"ACADEMIC YEAR: {current_year}\n"
+            f"REPORT TYPE: {report_type.capitalize()}\n"
+            f"SESSIONS CONDUCTED: {total_sessions}\n\n"
+            "AGGREGATED SESSION SUMMARIES:\n"
+            + "\n".join(session_summaries) + "\n\n"
+            f"AGGREGATED METRICS: {json.dumps(avg_metrics)}\n\n"
+            "Write the formal report components."
+        )
+        
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            response_text = await openai_service.get_chat_completion(
+                messages,
+                temperature=0.4,
+                response_format={"type": "json_object"}
+            )
+            
+            res_data = json.loads(response_text)
+            
+            # Combine components for legacy storage if needed, but we'll return the structured data
+            # We'll save the combined content to the database 'content' field
+            combined_content = json.dumps({
+                "identification": res_data.get("identification", ""),
+                "methodology": res_data.get("methodology", ""),
+                "narrative": res_data.get("narrative", "")
+            })
+            
+            return {
+                "content": combined_content,
+                "metrics_summary": res_data.get("metrics_summary", avg_metrics),
+                "recommendation": res_data.get("recommendation", "Manual review required.")
+            }
+        except Exception as e:
+            logger.error(f"Error generating formal report: {e}", exc_info=True)
+            return {
+                "content": f"# Progress Report: {child_info['name']}\n\nError generating detailed report. Please try again.",
+                "metrics_summary": avg_metrics,
+                "recommendation": "Manual review required."
+            }
+
+    async def translate_report(self, report_content: str, target_language: str) -> str:
+        """
+        Translate a formal report's narrative content into the target language on the fly.
+        """
+        system_prompt = (
+            "You are a professional academic translator. "
+            f"Your task is to translate the following academic progress report into {target_language}.\n\n"
+            "CRITICAL CONSTRAINTS:\n"
+            "- Maintain the professional, formal, and objective tone of the original.\n"
+            "- Preserve the exact structure and all section headings.\n"
+            "- Do NOT add any new information or remove existing information.\n"
+            "- Ensure the translation is culturally appropriate for a homeschooling parent.\n"
+            "- Return ONLY the translated text, with no extra commentary."
+        )
+        
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Please translate this report into {target_language}:\n\n{report_content}"}
+            ]
+            
+            return await openai_service.get_chat_completion(messages, temperature=0.3)
+        except Exception as e:
+            logger.error(f"Error translating report: {e}", exc_info=True)
+            return report_content  # Fallback to original if translation fails
 
 insight_agent = InsightAgent()
 

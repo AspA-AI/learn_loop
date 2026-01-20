@@ -99,16 +99,22 @@ async def start_session(request: SessionStartRequest):
                 "strengths": child.get("strengths")
             }
         
-        # 8. Get initial explanation from Explainer Agent
+        learning_language = child.get("learning_language", "English")
+        
+        # 8. Translate concept name if needed for the child's UI
+        localized_concept = await explainer_agent.translate_concept(concept, learning_language)
+        
+        # 9. Get initial explanation from Explainer Agent
         initial_explanation = await explainer_agent.get_initial_explanation(
             concept=concept,
             age_level=age_level,
             child_name=child["name"],
             grounding_context=grounding_context,
-            learning_profile=learning_profile
+            learning_profile=learning_profile,
+            language=learning_language
         )
         
-        # 9. Save initial interaction to Supabase
+        # 10. Save initial interaction to Supabase
         supabase_service.add_interaction(session_id, "assistant", initial_explanation)
         
         # All academic concepts follow the structured flow: greeting → story → academic → ongoing
@@ -116,10 +122,12 @@ async def start_session(request: SessionStartRequest):
             session_id=UUID(session_id),
             child_name=child["name"],
             concept=concept,
+            localized_concept=localized_concept,
             age_level=age_level,
             initial_explanation=initial_explanation,
             suggested_questions=["What happens next?", "Tell me more!"],
-            conversation_phase="greeting"  # All concepts start with greeting phase
+            conversation_phase="greeting",  # All concepts start with greeting phase
+            learning_language=learning_language
         )
     except HTTPException:
         raise
@@ -134,16 +142,33 @@ async def interact(
     audio: Optional[UploadFile] = File(None)
 ):
     try:
-        # 1. Handle Input (Text or Audio)
+        # 1. Get session and child info FIRST to determine language
+        try:
+            session = supabase_service.get_session(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+            
+        child_id = session.get("child_id")
+        learning_language = "English"
+        if child_id and supabase_service.client:
+            try:
+                child_response = supabase_service.client.table("children").select("learning_language").eq("id", child_id).execute()
+                if child_response.data:
+                    learning_language = child_response.data[0].get("learning_language", "English")
+            except Exception as e:
+                logger.warning(f"Could not fetch learning language: {e}")
+
+        # 2. Handle Input (Text or Audio)
         child_message = message
         transcribed_text = None
 
         if audio:
-            logger.info(f"Processing audio input for session {session_id}")
+            logger.info(f"Processing audio input for session {session_id} in {learning_language}")
             try:
                 audio_content = await audio.read()
                 file_tuple = (audio.filename, audio_content, audio.content_type)
-                transcribed_text = await openai_service.transcribe_audio(file_tuple)
+                # Pass the learning language to Whisper for better accuracy
+                transcribed_text = await openai_service.transcribe_audio(file_tuple, language=learning_language)
                 child_message = transcribed_text
                 logger.info(f"Transcription result: {child_message}")
             except Exception as e:
@@ -153,21 +178,17 @@ async def interact(
         if not child_message:
             raise HTTPException(status_code=400, detail="Either 'message' or 'audio' must be provided.")
 
-        # 2. Get session and history from Supabase
-        try:
-            session = supabase_service.get_session(session_id)
-            history_data = supabase_service.get_interactions(session_id)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+        # 3. Get history from Supabase
+        history_data = supabase_service.get_interactions(session_id)
         
-        # Get child data to extract learning profile
-        child_id = session.get("child_id")
+        # Get full child data for learning profile
         learning_profile = None
         if child_id and supabase_service.client:
             try:
                 child_response = supabase_service.client.table("children").select("*").eq("id", child_id).execute()
                 if child_response.data:
                     child = child_response.data[0]
+                    # learning_language already set above
                     if any(child.get(key) for key in ["learning_style", "interests", "reading_level", "attention_span", "strengths"]):
                         learning_profile = {
                             "learning_style": child.get("learning_style"),
@@ -213,7 +234,8 @@ async def interact(
         state, reasoning, hint, performance_metrics = await evaluator_agent.evaluate_understanding(
             concept=session["concept"],
             last_explanation=last_explanation,
-            child_message=child_message
+            child_message=child_message,
+            language=learning_language
         )
 
         logger.info(f"✅ [EVALUATION] Result: {state.value.upper()}")
@@ -254,7 +276,8 @@ async def interact(
                 age_level=session["age_level"],
                 child_name="there",
                 grounding_context=grounding_context,
-                learning_profile=learning_profile
+                learning_profile=learning_profile,
+                language=learning_language
             )
             can_end_session = False
             should_offer_end = False
@@ -270,14 +293,16 @@ async def interact(
                 child_name="there",
                 story_explanation=last_explanation,
                 grounding_context=grounding_context,
-                learning_profile=learning_profile
+                learning_profile=learning_profile,
+                language=learning_language
             )
             # Also give academic quiz right after
             academic_quiz = await explainer_agent.get_academic_quiz(
                 concept=session["concept"],
                 age_level=session["age_level"],
                 child_name="there",
-                learning_profile=learning_profile
+                learning_profile=learning_profile,
+                language=learning_language
             )
             agent_response += "\n\n" + academic_quiz
             can_end_session = False
@@ -293,7 +318,8 @@ async def interact(
                 grounding_context=grounding_context,
                 understanding_state=state.value,
                 confusion_attempts=confusion_attempts,
-                learning_profile=learning_profile
+                learning_profile=learning_profile,
+                language=learning_language
             )
         
         # Only allow ending session if there's REAL evidence of understanding
@@ -383,6 +409,11 @@ async def end_session(session_id: str):
         except ValueError as e:
             raise HTTPException(status_code=404, detail=f"Session not found. Please start a new session.")
         
+        # Get child info for name and language
+        child = supabase_service.get_child_by_id(session["child_id"])
+        child_name = child.get("name", "Child") if child else "Child"
+        learning_language = child.get("learning_language", "English") if child else "English"
+        
         if session.get("status") == "completed":
             # Return existing report if already ended
             return SessionEndResponse(
@@ -392,11 +423,19 @@ async def end_session(session_id: str):
         
         interactions = supabase_service.get_interactions(session_id)
         
-        # 2. Prepare session data for InsightAgent
+        # 2. Generate academic snapshot and metrics using EvaluatorAgent
+        academic_report = await evaluator_agent.generate_session_report(
+            child_name=child_name,
+            concept=session["concept"],
+            interactions=interactions,
+            language=learning_language
+        )
+        
+        # 3. Prepare session data for InsightAgent (legacy report format)
         sessions_data = [{
             "session_id": session_id,
             "concept": session["concept"],
-            "child_name": "Child",  # Will be enriched from child_id if needed
+            "child_name": child_name,
             "created_at": session.get("created_at"),
             "interactions": [
                 {
@@ -408,17 +447,17 @@ async def end_session(session_id: str):
             ]
         }]
         
-        # 3. Generate evaluation report using InsightAgent
+        # 4. Generate evaluation report using InsightAgent
         report = await insight_agent.generate_parent_report(sessions_data)
         
-        # 4. Calculate mastery stats
+        # 5. Calculate mastery stats
         states = [i.get("understanding_state") for i in interactions if i.get("understanding_state")]
         total = len(states)
         understood = states.count("understood") if total > 0 else 0
         partial = states.count("partial") if total > 0 else 0
         mastery_percent = int(((understood * 1.0 + partial * 0.5) / total) * 100) if total > 0 else 0
         
-        # 5. Enrich report with session metadata
+        # 6. Enrich report with session metadata
         evaluation_report = {
             **report,
             "session_id": session_id,
@@ -428,11 +467,18 @@ async def end_session(session_id: str):
             "understood_count": understood,
             "partial_count": partial,
             "confused_count": states.count("confused") if total > 0 else 0,
+            "metrics": academic_report.get("metrics", {}),
+            "academic_summary": academic_report.get("summary", ""),
             "ended_at": datetime.now(timezone.utc).isoformat()
         }
         
-        # 6. Save report to session and mark as completed
-        supabase_service.end_session(session_id, evaluation_report)
+        # 7. Save report, metrics and summary to database
+        supabase_service.end_session(
+            session_id=session_id, 
+            evaluation_report=evaluation_report,
+            metrics=academic_report.get("metrics"),
+            academic_summary=academic_report.get("summary")
+        )
         
         # 7. Clean up session context from memory
         if session_id in session_contexts:
@@ -471,12 +517,14 @@ async def start_quiz(session_id: str, num_questions: int = Query(5, ge=3, le=10)
         }
         
         # 2. Generate quiz questions
+        learning_language = child.get("learning_language", "English")
         questions = await explainer_agent.generate_quiz_questions(
             concept=session["concept"],
             age_level=session["age_level"],
             child_name=child.get("name", "there"),
             num_questions=min(num_questions, 10),  # Cap at 10 questions
-            learning_profile=learning_profile
+            learning_profile=learning_profile,
+            language=learning_language
         )
         
         if not questions:
@@ -544,12 +592,14 @@ async def submit_quiz_answer(session_id: str, answer: str = Form(...)):
         
         # 3. Evaluate the answer
         current_question = questions[current_index]
+        learning_language = child.get("learning_language", "English")
         evaluation = await explainer_agent.evaluate_quiz_answer(
             concept=session["concept"],
             age_level=session["age_level"],
             question=current_question,
             answer=answer,
-            learning_profile=learning_profile
+            learning_profile=learning_profile,
+            language=learning_language
         )
         
         # 4. Store answer and score

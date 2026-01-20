@@ -25,8 +25,10 @@ interface LearningState {
   childName: string | null;
   ageLevel: 6 | 8 | 10;
   concept: string | null;
+  localizedConcept: string | null;
+  learningLanguage: string | null;
   messages: Message[];
-  understandingState: 'understood' | 'partial' | 'confused' | null;
+  understandingState: 'understood' | 'partial' | 'confused' | 'procedural' | null;
   canEndSession: boolean;
   canTakeQuiz: boolean;
   isLoading: boolean;
@@ -41,6 +43,8 @@ const initialState: LearningState = {
   childName: null,
   ageLevel: 8,
   concept: null,
+  localizedConcept: null,
+  learningLanguage: null,
   messages: [],
   understandingState: null,
   canEndSession: false,
@@ -75,7 +79,7 @@ export const startLearningSession = createAsyncThunk(
 
 export const submitInteraction = createAsyncThunk(
   'learning/submitInteraction',
-  async (params: { message?: string; audio?: File }, { getState, rejectWithValue }) => {
+  async (params: { message?: string; audio?: File; displayMessage?: string }, { getState, rejectWithValue }) => {
     try {
       const state = getState() as { learning: LearningState };
       if (!state.learning.sessionId) throw new Error('No active session');
@@ -178,6 +182,7 @@ const learningSlice = createSlice({
       state.understandingState = null;
       state.error = null;
       state.conversationPhase = null;
+      state.learningLanguage = null;
       state.canEndSession = false;
       state.canTakeQuiz = false;
       state.isLoading = false;
@@ -196,8 +201,10 @@ const learningSlice = createSlice({
         state.sessionId = action.payload.session_id;
         state.childName = action.payload.child_name;
         state.concept = action.payload.concept;
+        state.localizedConcept = action.payload.localized_concept || action.payload.concept;
         state.ageLevel = action.payload.age_level;
         state.conversationPhase = action.payload.conversation_phase || null;
+        state.learningLanguage = action.payload.learning_language || null;
         state.messages = [{ 
           role: 'assistant', 
           content: action.payload.initial_explanation, 
@@ -210,10 +217,11 @@ const learningSlice = createSlice({
       })
       .addCase(submitInteraction.pending, (state, action) => {
         state.isLoading = true;
-        if (action.meta.arg.message) {
+        const displayMessage = action.meta.arg.displayMessage || action.meta.arg.message;
+        if (displayMessage) {
           state.messages.push({
             role: 'user',
-            content: action.meta.arg.message,
+            content: displayMessage,
             type: 'text'
           });
         }

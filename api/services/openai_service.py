@@ -41,21 +41,24 @@ class OpenAIService:
             logger.error(f"Unexpected error in OpenAI service: {e}", exc_info=True)
             raise e
 
-    async def transcribe_audio(self, audio_file: Any) -> str:
+    async def transcribe_audio(self, audio_file: Any, language: Optional[str] = None) -> str:
         try:
-            # transcription = await self.client.audio.transcriptions.create(
-            #     model="whisper-1", 
-            #     file=audio_file
-            # )
-            # return transcription.text
-            
-            # Since audio_file might be a SpooledTemporaryFile from FastAPI UploadFile,
-            # we need to make sure we pass it correctly.
-            # For now, let's assume it's already in a format Whisper likes or we convert it.
-            
+            # Map full language name to ISO code for Whisper
+            lang_map = {
+                'English': 'en',
+                'German': 'de',
+                'French': 'fr',
+                'Portuguese': 'pt',
+                'Spanish': 'es',
+                'Italian': 'it',
+                'Turkish': 'tr'
+            }
+            lang_code = lang_map.get(language) if language else None
+
             response = await self.client.audio.transcriptions.create(
                 model="whisper-1",
-                file=audio_file
+                file=audio_file,
+                language=lang_code
             )
             return response.text
         except Exception as e:

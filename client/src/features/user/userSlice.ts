@@ -8,12 +8,21 @@ interface ChildProfile {
   avatar: string;
   learningCode: string;
   target_topic?: string;
+  learning_language?: string;
+}
+
+interface ParentProfile {
+  id: string;
+  email: string;
+  name?: string;
+  preferred_language?: string;
 }
 
 interface UserState {
   role: 'parent' | 'child' | null;
   currentChild: ChildProfile | null;
   profiles: ChildProfile[];
+  parentProfile: ParentProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   loginError: string | null;
@@ -23,6 +32,7 @@ const initialState: UserState = {
   role: null,
   currentChild: null,
   profiles: [],
+  parentProfile: null,
   isAuthenticated: false,
   isLoading: false,
   loginError: null,
@@ -65,7 +75,21 @@ export const parentRegister = createAsyncThunk('user/parentRegister', async (dat
 });
 
 export const checkAuth = createAsyncThunk('user/checkAuth', async () => {
-  return authApi.isAuthenticated();
+  if (authApi.isAuthenticated()) {
+    // If token exists, fetch profile to ensure it's still valid
+    try {
+      const profile = await authApi.getProfile();
+      return profile;
+    } catch (error) {
+      authApi.logout();
+      return null;
+    }
+  }
+  return null;
+});
+
+export const updateParentProfile = createAsyncThunk('user/updateParentProfile', async (data: { name?: string; preferred_language?: string }) => {
+  return await learningApi.updateParentProfile(data);
 });
 
 const userSlice = createSlice({
@@ -129,11 +153,16 @@ const userSlice = createSlice({
         state.isLoading = true;
         state.loginError = null;
       })
-      .addCase(parentLogin.fulfilled, (state) => {
+      .addCase(parentLogin.fulfilled, (state, action) => {
         state.isLoading = false;
         state.role = 'parent';
         state.isAuthenticated = true;
         state.loginError = null;
+        state.parentProfile = {
+          id: action.payload.parent_id,
+          email: action.payload.email,
+          preferred_language: action.payload.preferred_language
+        };
       })
       .addCase(parentLogin.rejected, (state, action) => {
         state.isLoading = false;
@@ -144,11 +173,16 @@ const userSlice = createSlice({
         state.isLoading = true;
         state.loginError = null;
       })
-      .addCase(parentRegister.fulfilled, (state) => {
+      .addCase(parentRegister.fulfilled, (state, action) => {
         state.isLoading = false;
         state.role = 'parent';
         state.isAuthenticated = true;
         state.loginError = null;
+        state.parentProfile = {
+          id: action.payload.parent_id,
+          email: action.payload.email,
+          preferred_language: action.payload.preferred_language
+        };
       })
       .addCase(parentRegister.rejected, (state, action) => {
         state.isLoading = false;
@@ -159,6 +193,15 @@ const userSlice = createSlice({
         if (action.payload) {
           state.isAuthenticated = true;
           state.role = 'parent';
+          state.parentProfile = action.payload;
+        }
+      })
+      .addCase(updateParentProfile.fulfilled, (state, action) => {
+        if (state.parentProfile) {
+          state.parentProfile = {
+            ...state.parentProfile,
+            ...action.payload
+          };
         }
       });
   },

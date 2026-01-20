@@ -3,6 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Drop existing tables to ensure clean schema update
 DROP TABLE IF EXISTS public.interactions CASCADE;
+DROP TABLE IF EXISTS public.formal_reports CASCADE;
 DROP TABLE IF EXISTS public.sessions CASCADE;
 DROP TABLE IF EXISTS public.child_topics CASCADE;
 DROP TABLE IF EXISTS public.child_curriculum CASCADE;
@@ -17,6 +18,7 @@ CREATE TABLE public.parents (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL, -- Hashed password (use bcrypt or similar)
     name TEXT,
+    preferred_language TEXT DEFAULT 'English', -- One of: English, German, French, Portuguese, Spanish, Italian, Turkish
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -35,6 +37,7 @@ CREATE TABLE public.children (
     reading_level TEXT, -- e.g., 'beginner', 'intermediate', 'advanced'
     attention_span TEXT, -- e.g., 'short', 'medium', 'long'
     strengths TEXT[], -- Array of academic strengths
+    learning_language TEXT DEFAULT 'English', -- One of: English, German, French, Portuguese, Spanish, Italian, Turkish
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -90,7 +93,22 @@ CREATE TABLE public.sessions (
     age_level INTEGER NOT NULL,
     status TEXT DEFAULT 'active',
     evaluation_report JSONB, -- Stores the final evaluation report when session ends
+    metrics JSONB, -- Stores {accuracy, confidence, persistence, expression} (1-10)
+    academic_summary TEXT, -- Exactly 3 sentences for periodic reporting
     ended_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Table for Formal Reports (Generated for parents/inspectors)
+CREATE TABLE public.formal_reports (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    parent_id UUID REFERENCES public.parents(id) ON DELETE CASCADE,
+    child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
+    report_type TEXT NOT NULL, -- 'weekly', 'monthly', 'custom'
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    content TEXT NOT NULL, -- The formal narrative content
+    metrics_summary JSONB, -- Averaged metrics for the period
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,11 +1,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 interface ProgressGaugeProps {
   state: 'understood' | 'partial' | 'confused' | null;
 }
 
 const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
+  const { t } = useTranslation();
   const getProgress = () => {
     switch (state) {
       case 'confused': return 33;
@@ -28,11 +30,13 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
     <div className="w-full space-y-4">
       <div className="flex justify-between items-end mb-1">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">Concept Mastery</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground mb-1">
+            {t('child.concept_mastery')}
+          </p>
           <p className="text-xl font-black text-primary">
-            {state === 'understood' ? 'Concept Mastered' : 
-             state === 'partial' ? 'Building Understanding' : 
-             state === 'confused' ? 'Initial Discovery' : 'Starting Adventure'}
+            {state === 'understood' ? t('child.concept_mastered') : 
+             state === 'partial' ? t('child.building_understanding') : 
+             state === 'confused' ? t('child.initial_discovery') : t('child.starting_adventure')}
           </p>
         </div>
         <span className="text-2xl font-black text-primary">{getProgress()}%</span>

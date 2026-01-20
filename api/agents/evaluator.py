@@ -1,13 +1,15 @@
 import json
 import logging
+import os
 from services.openai_service import openai_service
 from models.schemas import UnderstandingState
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 
 logger = logging.getLogger(__name__)
 
 class EvaluatorAgent:
     def __init__(self):
+        self.ground_truth_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reporting_ground_truth.txt")
         self.system_prompt = (
             "You are an expert educational evaluator. Your job is to determine if a child understands a concept based on their message.\n\n"
             "CRITICAL CONTEXT CHECK:\n"
@@ -25,17 +27,26 @@ class EvaluatorAgent:
             "- follow_up_hint: a gentle, encouraging hint to help them understand if they are partial/confused. Otherwise, null.\n"
         )
 
-    async def evaluate_understanding(self, concept: str, last_explanation: str, child_message: str) -> Tuple[UnderstandingState, str, str, Dict[str, Any]]:
+    def _get_ground_truth(self) -> str:
+        """Read the reporting ground truth file"""
+        try:
+            with open(self.ground_truth_path, "r") as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error reading ground truth file: {e}")
+            return "Conceptual Accuracy, Cognitive Confidence, Engagement & Persistence, Communication Expression. All scale 1-10."
+
+    async def evaluate_understanding(self, concept: str, last_explanation: str, child_message: str, language: str = "English") -> Tuple[UnderstandingState, str, str, Dict[str, Any]]:
         """
         Returns: (state, reasoning, hint, performance_metrics)
         """
-        
-        
         user_prompt = (
+            f"Language: {language}\n"
             f"Concept: {concept}\n"
             f"Last Explanation Given: {last_explanation}\n"
             f"Child's Response: {child_message}\n\n"
-            "Analyze the child's response for the given last explanation and provide the classification in JSON."
+            f"Analyze the child's response for the given last explanation and provide the classification in JSON. "
+            f"CRITICAL: All reasoning and hints MUST be in {language}."
         )
         
         performance_metrics = {}
@@ -70,6 +81,60 @@ class EvaluatorAgent:
         except Exception as e:
             logger.error(f"Unexpected error in evaluator agent: {e}", exc_info=True)
             return UnderstandingState.CONFUSED, "Internal evaluator error.", "Continue the conversation normally.", {}
+
+    async def generate_session_report(self, child_name: str, concept: str, interactions: List[Dict[str, Any]], language: str = "English") -> Dict[str, Any]:
+        """
+        Generate a formal academic snapshot and metrics for a completed session.
+        """
+        ground_truth = self._get_ground_truth()
+        
+        # Prepare interaction history for the LLM
+        history_text = "\n".join([
+            f"{'Child' if i['role'] == 'user' else 'AI'}: {i['content']}"
+            for i in interactions[-15:] # Only send the last 15 interactions to save tokens
+        ])
+        
+        system_prompt = (
+            "You are a professional educational assessor for a homeschooling program. "
+            "Your task is to generate a formal academic snapshot and score the child's performance based on the following GROUND TRUTH standards:\n\n"
+            f"{ground_truth}\n\n"
+            f"CRITICAL: The 'summary' and 'reasoning' fields MUST be written entirely in {language}.\n\n"
+            "Respond ONLY in JSON format with the following keys:\n"
+            "- metrics: { accuracy: int, confidence: int, persistence: int, expression: int } (All 1-10)\n"
+            "- summary: string (Exactly 3 sentences: What was learned, What was achieved, Future focus)\n"
+            "- reasoning: string (Briefly explain the scores based on the conversation history)\n"
+        )
+        
+        user_prompt = (
+            f"Student Name: {child_name}\n"
+            f"Topic: {concept}\n\n"
+            "CONVERSATION HISTORY:\n"
+            f"{history_text}\n\n"
+            "Generate the formal metrics and 3-sentence summary."
+        )
+        
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            response_text = await openai_service.get_chat_completion(
+                messages,
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            return json.loads(response_text)
+        except Exception as e:
+            logger.error(f"Error generating session report: {e}", exc_info=True)
+            return {
+                "metrics": {"accuracy": 5, "confidence": 5, "persistence": 5, "expression": 5},
+                "summary": f"The session covered {concept}. The student engaged with the material. More practice is recommended.",
+                "reasoning": "Fallback report due to internal error."
+            }
+    
+evaluator_agent = EvaluatorAgent()
     
 evaluator_agent = EvaluatorAgent()
 

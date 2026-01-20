@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from '../hooks/store';
 import { logout as userLogout } from '../features/user/userSlice';
 import { clearLearningState } from '../features/learning/learningSlice';
@@ -9,10 +10,12 @@ import {
   BarChart3, 
   Users,
   BookMarked,
-  GraduationCap
+  GraduationCap,
+  FileText
 } from 'lucide-react';
 
 const Sidebar: React.FC = () => {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const { role, currentChild } = useAppSelector((state) => state.user);
   const { currentView } = useAppSelector((state) => state.parent);
@@ -24,10 +27,11 @@ const Sidebar: React.FC = () => {
 
   // Parent navigation items
   const navItems = [
-    { icon: BarChart3, label: 'Insights', active: currentView === 'insights', view: 'insights' },
-    { icon: Users, label: 'Children', active: currentView === 'children', view: 'children' },
-    { icon: BookMarked, label: 'Curriculum', active: currentView === 'curriculum', view: 'curriculum' },
-    { icon: Settings, label: 'Settings', active: currentView === 'settings', view: 'settings' },
+    { icon: BarChart3, label: t('nav.insights'), active: currentView === 'insights', view: 'insights' },
+    { icon: Users, label: t('nav.children'), active: currentView === 'children', view: 'children' },
+    { icon: BookMarked, label: t('nav.curriculum'), active: currentView === 'curriculum', view: 'curriculum' },
+    { icon: FileText, label: t('nav.reports'), active: currentView === 'reports', view: 'reports' },
+    { icon: Settings, label: t('nav.settings'), active: currentView === 'settings', view: 'settings' },
   ];
 
   const handleNavClick = (view: string) => {
@@ -60,10 +64,10 @@ const Sidebar: React.FC = () => {
           </div>
           <div className="overflow-hidden flex-1">
             <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-0.5">
-              Parent
+              {t('common.parent')}
             </p>
             <p className="font-bold text-white text-sm leading-tight truncate">
-              Parent Dashboard
+              {t('common.parent_dashboard')}
             </p>
           </div>
         </div>
@@ -94,11 +98,11 @@ const Sidebar: React.FC = () => {
       <div className="p-4 border-t border-white/10 space-y-3">
         <div className="p-3 bg-white/5 rounded-xl">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Status</span>
+            <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">{t('common.status')}</span>
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
           </div>
           <p className="text-[10px] text-white/50 font-medium leading-relaxed">
-            AI system active
+            {t('common.ai_system_active')}
           </p>
         </div>
 
@@ -107,7 +111,7 @@ const Sidebar: React.FC = () => {
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm text-white/60 hover:text-white hover:bg-white/5 transition-all"
         >
           <LogOut size={18} />
-          Sign Out
+          {t('nav.sign_out')}
         </button>
       </div>
     </div>

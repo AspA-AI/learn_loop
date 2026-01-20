@@ -28,7 +28,7 @@ class SupabaseService:
 
     # --- Parent Management ---
     
-    def create_parent(self, email: str, password_hash: str, name: Optional[str] = None) -> Dict[str, Any]:
+    def create_parent(self, email: str, password_hash: str, name: Optional[str] = None, preferred_language: str = "English") -> Dict[str, Any]:
         """Create a new parent account"""
         if not self.client:
             raise Exception("Supabase client not initialized.")
@@ -41,7 +41,8 @@ class SupabaseService:
             parent_data = {
                 "email": email,
                 "password_hash": password_hash,
-                "name": name
+                "name": name,
+                "preferred_language": preferred_language
             }
             response = self.client.table("parents").insert(parent_data).execute()
             return response.data[0]
@@ -83,7 +84,8 @@ class SupabaseService:
 
     def create_child(self, parent_id: str, name: str, age_level: int, learning_style: Optional[str] = None, 
                      interests: Optional[List[str]] = None, reading_level: Optional[str] = None,
-                     attention_span: Optional[str] = None, strengths: Optional[List[str]] = None) -> Dict[str, Any]:
+                     attention_span: Optional[str] = None, strengths: Optional[List[str]] = None,
+                     learning_language: str = "English") -> Dict[str, Any]:
         if not self.client:
             raise Exception("Supabase client not initialized.")
         try:
@@ -92,7 +94,8 @@ class SupabaseService:
                 "parent_id": parent_id,
                 "name": name,
                 "age_level": age_level,
-                "learning_code": learning_code
+                "learning_code": learning_code,
+                "learning_language": learning_language
             }
             # Add optional learning profile fields
             if learning_style:
@@ -575,19 +578,86 @@ class SupabaseService:
             logger.error(f"Error fetching interactions with states: {e}")
             return []
 
-    def end_session(self, session_id: str, evaluation_report: Dict[str, Any]):
-        """End a session and save evaluation report"""
+    def end_session(self, session_id: str, evaluation_report: Dict[str, Any], metrics: Optional[Dict[str, Any]] = None, academic_summary: Optional[str] = None):
+        """End a session and save evaluation report, metrics and summary"""
         if not self.client:
             raise Exception("Supabase client not initialized.")
         try:
-            import json
-            self.client.table("sessions").update({
+            update_data = {
                 "status": "completed",
-                "evaluation_report": json.dumps(evaluation_report),
+                "evaluation_report": evaluation_report,
                 "ended_at": datetime.now(timezone.utc).isoformat()
-            }).eq("id", session_id).execute()
+            }
+            if metrics:
+                update_data["metrics"] = metrics
+            if academic_summary:
+                update_data["academic_summary"] = academic_summary
+                
+            self.client.table("sessions").update(update_data).eq("id", session_id).execute()
         except Exception as e:
             logger.error(f"Error ending session: {e}")
             raise e
+
+    # --- Formal Reports ---
+
+    def create_formal_report(self, parent_id: str, child_id: str, report_type: str, start_date: str, end_date: str, content: str, metrics_summary: Dict[str, Any]) -> Dict[str, Any]:
+        """Save a generated formal report"""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            data = {
+                "parent_id": parent_id,
+                "child_id": child_id,
+                "report_type": report_type,
+                "start_date": start_date,
+                "end_date": end_date,
+                "content": content,
+                "metrics_summary": metrics_summary
+            }
+            response = self.client.table("formal_reports").insert(data).execute()
+            return response.data[0]
+        except Exception as e:
+            logger.error(f"Error saving formal report: {e}")
+            raise e
+
+    def get_formal_reports(self, child_id: str) -> List[Dict[str, Any]]:
+        """Get all formal reports for a child"""
+        if not self.client:
+            return []
+        try:
+            response = self.client.table("formal_reports").select("*").eq("child_id", child_id).order("created_at", desc=True).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching formal reports: {e}")
+            return []
+
+    def get_formal_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific formal report"""
+        if not self.client:
+            return None
+        try:
+            response = self.client.table("formal_reports").select("*").eq("id", report_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Error fetching formal report: {e}")
+            return None
+
+    def get_sessions_by_date_range(self, child_id: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get all completed sessions for a child within a date range"""
+        if not self.client:
+            return []
+        try:
+            logger.info(f"Fetching sessions for child {child_id} from {start_date} to {end_date}")
+            response = self.client.table("sessions").select("*")\
+                .eq("child_id", child_id)\
+                .eq("status", "completed")\
+                .gte("created_at", start_date)\
+                .lte("created_at", end_date)\
+                .order("created_at", desc=True).execute()
+            logger.info(f"Found {len(response.data)} completed sessions")
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching sessions by date range: {e}")
+            return []
 
 supabase_service = SupabaseService()

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../hooks/store';
 import { submitInteraction, endSession, clearLearningState, addMessage, setLoading, startQuiz, submitQuizAnswer, cancelQuiz } from './learningSlice';
 import { logout } from '../user/userSlice';
@@ -7,8 +8,9 @@ import ProgressGauge from './ProgressGauge';
 import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, Loader2, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle } from 'lucide-react';
 
 const ChatContainer: React.FC = () => {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, sessionId, conversationPhase, quiz } = useAppSelector((state) => state.learning);
+  const { messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, sessionId, conversationPhase, quiz } = useAppSelector((state) => state.learning);
   const [inputText, setInputText] = useState('');
   const [quizAnswer, setQuizAnswer] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -26,11 +28,11 @@ const ChatContainer: React.FC = () => {
   const handleEndSession = async () => {
     let confirmationContent = "";
     if (understandingState === 'understood') {
-      confirmationContent = "Great job! I can see you've really understood this concept. Let me create a summary of everything you learned today. This will just take a moment...";
+      confirmationContent = t('child.confirmation_understood');
     } else if (understandingState === 'partial') {
-      confirmationContent = "You've made good progress today! Let me create a summary of what we worked on. This will just take a moment...";
+      confirmationContent = t('child.confirmation_partial');
     } else {
-      confirmationContent = "You worked really hard today, and that's what matters! Let me create a summary of what we explored. This will just take a moment...";
+      confirmationContent = t('child.confirmation_confused');
     }
     
     dispatch(addMessage({
@@ -47,11 +49,11 @@ const ChatContainer: React.FC = () => {
       if (endSession.fulfilled.match(result)) {
         let successContent = "";
         if (understandingState === 'understood') {
-          successContent = "Perfect! Your learning session has been saved. Well done! 🎉";
+          successContent = t('child.success_understood');
         } else if (understandingState === 'partial') {
-          successContent = "Perfect! Your learning session has been saved. You made good progress today! 💪";
+          successContent = t('child.success_partial');
         } else {
-          successContent = "Perfect! Your learning session has been saved. You worked really hard today! 🌟";
+          successContent = t('child.success_confused');
         }
         
         dispatch(addMessage({
@@ -63,7 +65,7 @@ const ChatContainer: React.FC = () => {
         setTimeout(() => {
           dispatch(addMessage({
             role: 'assistant',
-            content: "📧 Your results have been passed to your parents! They'll be able to see all the amazing progress you made today.",
+            content: t('child.results_passed'),
             type: 'text'
           }));
           
@@ -78,7 +80,7 @@ const ChatContainer: React.FC = () => {
     } catch (error) {
       dispatch(addMessage({
         role: 'assistant',
-        content: "Hmm, something went wrong while saving your session. Don't worry, your progress is safe! Please try again.",
+        content: t('child.error_ending'),
         type: 'text'
       }));
       dispatch(setLoading(false));
@@ -98,7 +100,7 @@ const ChatContainer: React.FC = () => {
       if (startQuiz.rejected.match(result)) {
         dispatch(addMessage({
           role: 'assistant',
-          content: "Sorry, I couldn't start the quiz right now. Please try again!",
+          content: t('child.quiz_start_error'),
           type: 'text'
         }));
       }
@@ -111,7 +113,7 @@ const ChatContainer: React.FC = () => {
     if (quizAnswer.trim()) {
       dispatch(addMessage({
         role: 'user',
-        content: `Question ${quiz.questionNumber}: ${quizAnswer}`,
+        content: `${t('child.question')} ${quiz.questionNumber}: ${quizAnswer}`,
         type: 'text'
       }));
       dispatch(submitQuizAnswer(quizAnswer));
@@ -185,16 +187,16 @@ const ChatContainer: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2 text-xs font-bold text-indigo-500 uppercase tracking-wider mb-1">
-                <Sparkles size={12} /> Learning Adventure
+                <Sparkles size={12} /> {t('child.learning_adventure')}
               </div>
               <h2 className="text-3xl font-black gradient-text">
-                {concept || 'Getting Ready...'}
+                {localizedConcept || t('child.getting_ready')}
               </h2>
             </div>
           </div>
           <div className="flex items-center gap-3 glass rounded-2xl px-4 py-2 border border-indigo-200">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-sm font-bold text-slate-700">AI Active</span>
+            <span className="text-sm font-bold text-slate-700">{t('child.ai_active')}</span>
           </div>
         </motion.header>
 
@@ -215,8 +217,8 @@ const ChatContainer: React.FC = () => {
                     <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-5xl mb-6 shadow-lg border-2 border-indigo-200">
                       <Rocket size={48} className="text-indigo-600" />
                     </div>
-                    <p className="text-lg font-bold text-slate-600 mb-2">Ready to explore?</p>
-                    <p className="text-sm text-slate-500">Your learning adventure is about to begin!</p>
+                    <p className="text-lg font-bold text-slate-600 mb-2">{t('child.ready_explore')}</p>
+                    <p className="text-sm text-slate-500">{t('child.adventure_begin')}!</p>
                   </motion.div>
                 ) : (
                   messages.map((msg, idx) => (
@@ -239,7 +241,7 @@ const ChatContainer: React.FC = () => {
                             <p className="text-base leading-relaxed font-medium text-slate-800">{msg.content}</p>
                             {msg.transcribedText && (
                               <div className="mt-3 pt-3 border-t border-indigo-100 text-xs font-semibold text-indigo-600 flex items-center gap-2">
-                                <Mic size={12} /> Voice: "{msg.transcribedText}"
+                                <Mic size={12} /> {t('child.voice')}: "{msg.transcribedText}"
                               </div>
                             )}
                           </div>
@@ -274,7 +276,7 @@ const ChatContainer: React.FC = () => {
                       <div className="w-2 h-2 rounded-full bg-purple-500 animate-bounce [animation-delay:0.2s]" />
                       <div className="w-2 h-2 rounded-full bg-pink-500 animate-bounce [animation-delay:0.4s]" />
                     </div>
-                    <span className="text-sm font-semibold text-slate-600">Thinking...</span>
+                    <span className="text-sm font-semibold text-slate-600">{t('child.thinking')}</span>
                   </div>
                 </motion.div>
               )}
@@ -293,13 +295,13 @@ const ChatContainer: React.FC = () => {
                     <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-4 border-2 border-white/30">
                       <Rocket size={32} />
                     </div>
-                    <p className="font-bold mb-4 text-xl">Ready to start learning?</p>
+                    <p className="font-bold mb-4 text-xl">{t('child.ready_to_start')}</p>
                     <button
-                      onClick={() => dispatch(submitInteraction({ message: "ready" }))}
+                      onClick={() => dispatch(submitInteraction({ message: "ready", displayMessage: t('child.ready_message') }))}
                       disabled={isLoading}
                       className="px-8 py-4 bg-white text-indigo-600 rounded-2xl font-black hover:scale-105 transition-transform shadow-xl disabled:opacity-50 disabled:cursor-not-allowed text-lg"
                     >
-                      Let's Go! 🚀
+                      {t('child.lets_go')}
                     </button>
                   </div>
                 </motion.div>
@@ -319,163 +321,163 @@ const ChatContainer: React.FC = () => {
                         <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
                           <BookOpen size={20} />
                         </div>
-                        <span className="font-bold text-lg">Practice Quiz</span>
-                      </div>
-                      <button
-                        onClick={handleCancelQuiz}
-                        disabled={isLoading}
-                        className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-all disabled:opacity-50"
-                      >
-                        <X size={16} />
-                      </button>
+                      <span className="font-bold text-lg">{t('child.practice_quiz')}</span>
                     </div>
-                    <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/30">
-                      <div className="text-xs font-bold uppercase tracking-wider mb-2 opacity-90">
-                        Question {quiz.questionNumber} of {quiz.totalQuestions}
-                      </div>
-                      <p className="text-lg font-semibold mb-4">{quiz.question}</p>
-                      <div className="flex gap-3">
-                        <input
-                          type="text"
-                          value={quizAnswer}
-                          onChange={(e) => setQuizAnswer(e.target.value)}
-                          onKeyPress={(e) => e.key === 'Enter' && handleSubmitQuizAnswer()}
-                          placeholder="Type your answer..."
-                          disabled={isLoading}
-                          className="flex-1 h-12 px-4 rounded-xl bg-white/90 border-2 border-white text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-white disabled:opacity-50 font-semibold"
-                        />
-                        <button
-                          onClick={handleSubmitQuizAnswer}
-                          disabled={!quizAnswer.trim() || isLoading}
-                          className="px-6 h-12 bg-white text-blue-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Submit
-                        </button>
-                      </div>
-                    </div>
+                    <button
+                      onClick={handleCancelQuiz}
+                      disabled={isLoading}
+                      className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition-all disabled:opacity-50"
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
-                </motion.div>
-              )}
-
-              {/* Quiz Completed UI */}
-              {quiz.completed && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20" />
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/30">
-                        <Award size={24} />
-                      </div>
-                      <span className="font-black text-2xl">Quiz Complete! 🎉</span>
+                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/30">
+                    <div className="text-xs font-bold uppercase tracking-wider mb-2 opacity-90">
+                      {t('child.question')} {quiz.questionNumber} {t('child.of')} {quiz.totalQuestions}
                     </div>
-                    <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/30 mb-4">
-                      <p className="text-2xl font-black mb-1">You scored {quiz.percentage}%!</p>
-                      <p className="text-sm opacity-90">Amazing work on {concept}!</p>
-                    </div>
+                    <p className="text-lg font-semibold mb-4">{quiz.question}</p>
                     <div className="flex gap-3">
-                      {canTakeQuiz && (
-                        <button
-                          onClick={handleStartQuiz}
-                          disabled={isLoading}
-                          className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
-                        >
-                          Another Quiz
-                        </button>
-                      )}
+                      <input
+                        type="text"
+                        value={quizAnswer}
+                        onChange={(e) => setQuizAnswer(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSubmitQuizAnswer()}
+                        placeholder={t('child.type_answer')}
+                        disabled={isLoading}
+                        className="flex-1 h-12 px-4 rounded-xl bg-white/90 border-2 border-white text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-white disabled:opacity-50 font-semibold"
+                      />
                       <button
-                        onClick={handleEndSession}
-                        disabled={isLoading || isEnding}
-                        className="flex-1 h-12 bg-emerald-600 text-white rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30"
+                        onClick={handleSubmitQuizAnswer}
+                        disabled={!quizAnswer.trim() || isLoading}
+                        className="px-6 h-12 bg-white text-blue-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Finish
+                        {t('common.submit')}
                       </button>
                     </div>
                   </div>
-                </motion.div>
-              )}
+                </div>
+              </motion.div>
+            )}
 
-              {/* End Session Options */}
-              {!quiz.active && !quiz.completed && canEndSession && !isEnding && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden ${
-                    understandingState === 'understood'
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+            {/* Quiz Completed UI */}
+            {quiz.completed && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
+              >
+                <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/30">
+                      <Award size={24} />
+                    </div>
+                    <span className="font-black text-2xl">{t('child.quiz_complete')}! 🎉</span>
+                  </div>
+                  <div className="bg-white/20 backdrop-blur-sm p-4 rounded-2xl border border-white/30 mb-4">
+                    <p className="text-2xl font-black mb-1">{t('child.you_scored')} {quiz.percentage}%!</p>
+                    <p className="text-sm opacity-90">{t('child.amazing_work')} {concept}!</p>
+                  </div>
+                  <div className="flex gap-3">
+                    {canTakeQuiz && (
+                      <button
+                        onClick={handleStartQuiz}
+                        disabled={isLoading}
+                        className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
+                      >
+                        {t('child.another_quiz')}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleEndSession}
+                      disabled={isLoading || isEnding}
+                      className="flex-1 h-12 bg-emerald-600 text-white rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30"
+                    >
+                      {t('common.finish')}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* End Session Options */}
+            {!quiz.active && !quiz.completed && canEndSession && !isEnding && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden ${
+                  understandingState === 'understood'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                    : understandingState === 'partial'
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                    : 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                }`}
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16" />
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-3">
+                    {understandingState === 'understood' ? (
+                      <>
+                        <CheckCircle size={24} />
+                        <span className="font-black text-xl">{t('child.mastered_this')}! 🎯</span>
+                      </>
+                    ) : understandingState === 'partial' ? (
+                      <>
+                        <Lightbulb size={24} />
+                        <span className="font-black text-xl">{t('child.great_progress')}! 💡</span>
+                      </>
+                    ) : (
+                      <>
+                        <Star size={24} />
+                        <span className="font-black text-xl">{t('child.awesome_effort')}! 🌟</span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-sm opacity-90 mb-4">
+                    {understandingState === 'understood'
+                      ? t('child.what_next')
                       : understandingState === 'partial'
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                      : 'bg-gradient-to-r from-blue-500 to-indigo-500'
-                  }`}
-                >
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16" />
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-3">
-                      {understandingState === 'understood' ? (
-                        <>
-                          <CheckCircle size={24} />
-                          <span className="font-black text-xl">You've mastered this! 🎯</span>
-                        </>
-                      ) : understandingState === 'partial' ? (
-                        <>
-                          <Lightbulb size={24} />
-                          <span className="font-black text-xl">Great progress! 💡</span>
-                        </>
-                      ) : (
-                        <>
-                          <Star size={24} />
-                          <span className="font-black text-xl">Awesome effort! 🌟</span>
-                        </>
-                      )}
-                    </div>
-                    <p className="text-sm opacity-90 mb-4">
-                      {understandingState === 'understood'
-                        ? "What would you like to do next?"
-                        : understandingState === 'partial'
-                        ? "Learning takes time, and that's okay! Keep practicing!"
-                        : "You're doing great! Take a break and come back when you're ready."}
-                    </p>
-                    <div className="flex gap-3">
-                      {canTakeQuiz && understandingState === 'understood' && (
-                        <button
-                          onClick={handleStartQuiz}
-                          disabled={isLoading}
-                          className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
-                        >
-                          Practice Quiz
-                        </button>
-                      )}
+                      ? t('child.keep_practicing')
+                      : t('child.take_break')}
+                  </p>
+                  <div className="flex gap-3">
+                    {canTakeQuiz && understandingState === 'understood' && (
                       <button
-                        onClick={handleEndSession}
+                        onClick={handleStartQuiz}
                         disabled={isLoading}
-                        className={`flex-1 h-12 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30 ${
-                          understandingState === 'understood'
-                            ? 'bg-emerald-600 text-white'
-                            : understandingState === 'partial'
-                            ? 'bg-amber-600 text-white'
-                            : 'bg-blue-600 text-white'
-                        }`}
+                        className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
                       >
-                        End Session
+                        {t('child.practice_quiz')}
                       </button>
-                    </div>
+                    )}
+                    <button
+                      onClick={handleEndSession}
+                      disabled={isLoading}
+                      className={`flex-1 h-12 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30 ${
+                        understandingState === 'understood'
+                          ? 'bg-emerald-600 text-white'
+                          : understandingState === 'partial'
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-blue-600 text-white'
+                      }`}
+                    >
+                      {t('child.end_session')}
+                    </button>
                   </div>
-                </motion.div>
-              )}
+                </div>
+              </motion.div>
+            )}
 
-              {isEnding && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-4 text-white text-center font-bold flex items-center justify-center gap-3 shadow-lg"
-                >
-                  <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Creating your learning summary...</span>
-                </motion.div>
-              )}
+            {isEnding && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-4 text-white text-center font-bold flex items-center justify-center gap-3 shadow-lg"
+              >
+                <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                <span>{t('child.creating_summary')}...</span>
+              </motion.div>
+            )}
 
               {conversationPhase !== "greeting" && !quiz.active && !quiz.completed && !isEnding && (
                 <div className="flex gap-3">
@@ -498,7 +500,7 @@ const ChatContainer: React.FC = () => {
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                      placeholder={isRecording ? "🎤 Recording..." : "Ask me anything or share your thoughts..."}
+                      placeholder={isRecording ? t('child.recording') : t('child.type_message')}
                       disabled={isRecording || isLoading || isEnding}
                       className="w-full h-14 pl-6 pr-16 rounded-2xl border-2 border-indigo-200 focus:border-indigo-500 outline-none text-base font-semibold transition-all shadow-lg bg-white disabled:opacity-50 placeholder:text-slate-400"
                     />
@@ -526,7 +528,9 @@ const ChatContainer: React.FC = () => {
             >
               <div className="flex items-center gap-2 mb-4">
                 <div className="text-2xl">{getUnderstandingEmoji()}</div>
-                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">Progress</h4>
+                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                  {understandingState ? t(`child.${understandingState}`) : t('child.progress')}
+                </h4>
               </div>
               <ProgressGauge state={understandingState} />
             </motion.div>
@@ -541,10 +545,10 @@ const ChatContainer: React.FC = () => {
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-3">
                   <Lightbulb size={20} />
-                  <h4 className="text-sm font-black uppercase tracking-wider">Quick Tip</h4>
+                  <h4 className="text-sm font-black uppercase tracking-wider">{t('child.quick_tip')}</h4>
                 </div>
                 <p className="text-sm font-medium leading-relaxed text-white/90">
-                  Try explaining what you learned in your own words! This helps your brain remember better. 🧠
+                  {t('child.tip_content')} 🧠
                 </p>
               </div>
             </motion.div>
@@ -557,9 +561,9 @@ const ChatContainer: React.FC = () => {
             >
               <div className="flex items-center gap-2 mb-3">
                 <BookOpen size={18} className="text-indigo-600" />
-                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">Topic</h4>
+                <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">{t('child.topic')}</h4>
               </div>
-              <p className="text-base font-bold text-slate-700">{concept || 'Loading...'}</p>
+              <p className="text-base font-bold text-slate-700">{localizedConcept || t('common.loading')}</p>
             </motion.div>
           </div>
         </div>

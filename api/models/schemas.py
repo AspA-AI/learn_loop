@@ -19,7 +19,7 @@ class UnderstandingState(str, Enum):
 class ChildProfile(BaseModel):
     id: UUID
     name: str
-    age_level: int  # Changed from AgeLevel enum to int for flexibility
+    age_level: int
     learning_code: str
     target_topic: Optional[str] = None
     # Optional Learning Profile
@@ -28,19 +28,21 @@ class ChildProfile(BaseModel):
     reading_level: Optional[str] = None
     attention_span: Optional[str] = None
     strengths: Optional[List[str]] = None
+    learning_language: str = "English"
 
 class ChildCreate(BaseModel):
     name: str
-    age_level: int  # Changed from AgeLevel enum to int for flexibility
+    age_level: int
     # Optional Learning Profile
     learning_style: Optional[str] = None
     interests: Optional[List[str]] = None
     reading_level: Optional[str] = None
     attention_span: Optional[str] = None
     strengths: Optional[List[str]] = None
+    learning_language: str = "English"
 
 class ChildUpdate(BaseModel):
-    target_topic: Optional[str] = None
+    name: Optional[str] = None
     age_level: Optional[int] = None
     # Optional Learning Profile
     learning_style: Optional[str] = None
@@ -48,6 +50,7 @@ class ChildUpdate(BaseModel):
     reading_level: Optional[str] = None
     attention_span: Optional[str] = None
     strengths: Optional[List[str]] = None
+    learning_language: Optional[str] = None
 
 # --- Session & Interaction ---
 
@@ -58,10 +61,12 @@ class SessionStartResponse(BaseModel):
     session_id: UUID
     child_name: str
     concept: str
+    localized_concept: Optional[str] = None
     age_level: int  # Changed from AgeLevel enum to int for flexibility
     initial_explanation: str
     suggested_questions: List[str]
     conversation_phase: str = "greeting"  # "greeting" means waiting for ready
+    learning_language: Optional[str] = None
 
 class InteractionResponse(BaseModel):
     agent_response: str
@@ -129,3 +134,11 @@ class TopicCreate(BaseModel):
 
 class TopicUpdate(BaseModel):
     is_active: Optional[bool] = None
+
+# --- Parent & Auth ---
+
+class ParentProfile(BaseModel):
+    id: UUID
+    email: str
+    name: Optional[str] = None
+    preferred_language: str = "English"

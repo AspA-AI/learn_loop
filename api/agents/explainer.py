@@ -12,14 +12,13 @@ class ExplainerAgent:
             "Your goal is to explain academic concepts using age-appropriate framing and analogies."
         )
         
-    def _get_system_prompt(self, age_level: int, concept: str, learning_profile: Optional[Dict[str, Any]] = None) -> str:
+    def _get_system_prompt(self, age_level: int, concept: str, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
-        Returns age-adaptive system prompt with concept enforcement.
-        Structure-focused, topic-agnostic, dynamically injects the concept.
-        Uses LLM's knowledge of child development - no hardcoded age conditionals.
+        Returns age-adaptive system prompt with concept enforcement and language setting.
         """
         base_constraints = (
             "CRITICAL CONSTRAINTS:\n"
+            f"- All communication MUST be entirely in {language}\n"
             "- You MUST stay focused ONLY on the concept: '{concept}'\n"
             "- Do NOT introduce other topics, concepts, or related subjects\n"
             "- Max 3 sentences per explanation\n"
@@ -178,12 +177,12 @@ class ExplainerAgent:
             
         return f"{self.role_description}\n\n{base_constraints}\n\n{age_context}{profile_context}"
 
-    async def get_initial_explanation(self, concept: str, age_level: int, child_name: str = "there", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None) -> str:
+    async def get_initial_explanation(self, concept: str, age_level: int, child_name: str = "there", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
         Returns the initial greeting and readiness check.
         Structure: Greeting → Ask if ready → Wait for confirmation
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         user_prompt = (
             f"Greet {child_name} warmly and ask if they're ready to start learning about '{concept}'. "
@@ -200,12 +199,12 @@ class ExplainerAgent:
         
         return await openai_service.get_chat_completion(messages, temperature=0.7)
     
-    async def get_story_explanation(self, concept: str, age_level: int, child_name: str = "there", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None) -> str:
+    async def get_story_explanation(self, concept: str, age_level: int, child_name: str = "there", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
         Step 1: Explain using story/analogy only (works for ANY academic subject)
         Structure: Story explanation → Story-based quiz question
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         user_prompt = (
             f"Great! Now let's start learning about '{concept}'. "
@@ -227,7 +226,7 @@ class ExplainerAgent:
         
         return await openai_service.get_chat_completion(messages, temperature=0.7)
     
-    async def get_academic_explanation(self, concept: str, age_level: int, child_name: str = "there", story_explanation: str = "", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None) -> str:
+    async def get_academic_explanation(self, concept: str, age_level: int, child_name: str = "there", story_explanation: str = "", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
         Step 2: Connect story to academic/formal explanation (works for ANY academic subject)
         Structure: Connect story → Show academic notation/terminology → Explain symbols/terms
@@ -236,7 +235,7 @@ class ExplainerAgent:
         For geography: shows maps, coordinates, terminology
         For science: shows formulas, scientific terms
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         # Unified prompt - LLM will automatically determine the appropriate academic format based on the concept
         user_prompt = (
@@ -262,13 +261,13 @@ class ExplainerAgent:
         
         return await openai_service.get_chat_completion(messages, temperature=0.7)
     
-    async def get_academic_quiz(self, concept: str, age_level: int, child_name: str = "there", learning_profile: Optional[Dict[str, Any]] = None) -> str:
+    async def get_academic_quiz(self, concept: str, age_level: int, child_name: str = "there", learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
         Step 3: Quiz them on academic notation/terminology (works for ANY academic subject)
         Structure: Give problem/question using academic notation/terminology
         LLM automatically determines the appropriate format based on the concept.
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         # Unified prompt - LLM will automatically determine the appropriate quiz format
         user_prompt = (
@@ -295,14 +294,15 @@ class ExplainerAgent:
         grounding_context: Optional[str] = None,
         understanding_state: Optional[str] = None,
         confusion_attempts: int = 0,
-        learning_profile: Optional[Dict[str, Any]] = None
+        learning_profile: Optional[Dict[str, Any]] = None,
+        language: str = "English"
     ) -> tuple:
         """
         Returns (response, can_end_session, should_offer_end)
         - can_end_session: True if child has demonstrated full understanding
         - should_offer_end: True if child is stuck after multiple attempts (offer to end session)
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         # Add guidance for assessing understanding (works for ANY academic subject)
         system_prompt += (
@@ -371,12 +371,12 @@ class ExplainerAgent:
         
         return response, False, should_offer_end  # can_end_session determined by session route
     
-    async def generate_quiz_questions(self, concept: str, age_level: int, child_name: str = "there", num_questions: int = 5, learning_profile: Optional[Dict[str, Any]] = None) -> List[str]:
+    async def generate_quiz_questions(self, concept: str, age_level: int, child_name: str = "there", num_questions: int = 5, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> List[str]:
         """
         Generate a set of practice quiz questions for the concept.
         Returns a list of questions that test understanding of the concept.
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         user_prompt = (
             f"Generate {num_questions} practice questions about '{concept}' for a {age_level}-year-old child named {child_name}. "
@@ -424,12 +424,12 @@ class ExplainerAgent:
                 f"How would you use '{concept}' in a real situation?"
             ][:num_questions]
     
-    async def evaluate_quiz_answer(self, concept: str, age_level: int, question: str, answer: str, learning_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def evaluate_quiz_answer(self, concept: str, age_level: int, question: str, answer: str, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> Dict[str, Any]:
         """
         Evaluate a quiz answer and provide feedback.
         Returns: {"correct": bool, "feedback": str, "score": int}
         """
-        system_prompt = self._get_system_prompt(age_level, concept, learning_profile)
+        system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         user_prompt = (
             f"Evaluate this answer to a quiz question about '{concept}':\n\n"
@@ -468,5 +468,25 @@ class ExplainerAgent:
                 "feedback": "Good job! Keep practicing.",
                 "score": 75
             }
+
+    async def translate_concept(self, concept: str, target_language: str) -> str:
+        """
+        Translate a concept name into the target language.
+        """
+        if target_language == "English":
+            return concept
+            
+        system_prompt = (
+            "You are a helpful academic translator. "
+            f"Translate the following educational concept into {target_language}. "
+            "Return ONLY the translated name, nothing else."
+        )
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": concept}
+        ]
+        
+        return await openai_service.get_chat_completion(messages, temperature=0.1)
 
 explainer_agent = ExplainerAgent()

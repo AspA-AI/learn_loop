@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from './hooks/store';
 import { parentLogin, parentRegister, setRole } from './features/user/userSlice';
 import { startLearningSession, setError } from './features/learning/learningSlice';
 import { Sparkles, ShieldCheck, BookOpen, Key, Loader2, ArrowRight, GraduationCap, Mail, Lock, User } from 'lucide-react';
 
 const LandingPage: React.FC = () => {
+  const { t } = useTranslation();
   const dispatch = useAppDispatch();
   const { error: sessionError, isLoading: isSessionLoading, sessionId } = useAppSelector((state) => state.learning);
   const { isLoading: isAuthLoading, loginError } = useAppSelector((state) => state.user);
@@ -65,12 +67,12 @@ const LandingPage: React.FC = () => {
             <GraduationCap size={32} />
           </div>
           <h1 className="text-5xl font-black tracking-tight">
-            <span className="gradient-text">LEARN</span>
-            <span className="text-slate-800">LOOP</span>
+            <span className="gradient-text">{t('landing.learn')}</span>
+            <span className="text-slate-800">{t('landing.loop')}</span>
           </h1>
         </div>
         <p className="text-slate-600 font-semibold text-center">
-          AI-Powered Learning Companion
+          {t('landing.subtitle')}
         </p>
       </motion.div>
 
@@ -87,8 +89,8 @@ const LandingPage: React.FC = () => {
               <BookOpen size={28} />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-slate-800">Student Access</h2>
-              <p className="text-sm text-slate-600 font-medium">Enter your learning code</p>
+              <h2 className="text-2xl font-black text-slate-800">{t('landing.student_access')}</h2>
+              <p className="text-sm text-slate-600 font-medium">{t('landing.student_id_prompt')}</p>
             </div>
           </div>
           
@@ -97,7 +99,7 @@ const LandingPage: React.FC = () => {
               <Key className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
               <input 
                 type="text"
-                placeholder="Enter your code (e.g. LEO-782)"
+                placeholder={t('landing.learning_code_placeholder')}
                 value={studentCode}
                 onChange={(e) => setStudentCode(e.target.value)}
                 disabled={isSessionLoading}
@@ -126,7 +128,7 @@ const LandingPage: React.FC = () => {
                 <Loader2 className="animate-spin" size={20} />
               ) : (
                 <>
-                  Start Learning 
+                  {t('landing.start_learning')} 
                   <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
                 </>
               )}
@@ -148,8 +150,8 @@ const LandingPage: React.FC = () => {
                 <ShieldCheck size={28} />
               </div>
               <div>
-                <h2 className="text-2xl font-black">Parent Portal</h2>
-                <p className="text-sm text-white/80 font-medium">Manage profiles & insights</p>
+                <h2 className="text-2xl font-black">{t('landing.parent_portal')}</h2>
+                <p className="text-sm text-white/80 font-medium">{t('landing.parent_subtitle')}</p>
               </div>
             </div>
             
@@ -166,9 +168,9 @@ const LandingPage: React.FC = () => {
                     onClick={() => setShowParentLogin(true)}
                     className="w-full h-14 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all"
                   >
-                    Login / Register
+                    {t('landing.login_register')}
                   </button>
-                  <p className="text-center text-xs text-white/60 font-semibold">Secure & Private</p>
+                  <p className="text-center text-xs text-white/60 font-semibold">{t('landing.secure_private')}</p>
                 </motion.div>
               ) : (
                 <motion.form
@@ -184,7 +186,7 @@ const LandingPage: React.FC = () => {
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
                       <input
                         type="text"
-                        placeholder="Your name (optional)"
+                        placeholder={t('landing.full_name_placeholder')}
                         value={parentName}
                         onChange={(e) => setParentName(e.target.value)}
                         className="w-full h-12 pl-12 pr-4 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 text-white placeholder:text-white/60 font-semibold outline-none focus:bg-white/30 focus:border-white/50 transition-all"
@@ -195,7 +197,7 @@ const LandingPage: React.FC = () => {
                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
                     <input
                       type="email"
-                      placeholder="Email"
+                      placeholder={t('landing.email')}
                       value={parentEmail}
                       onChange={(e) => setParentEmail(e.target.value)}
                       required
@@ -206,7 +208,7 @@ const LandingPage: React.FC = () => {
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
                     <input
                       type="password"
-                      placeholder="Password"
+                      placeholder={t('landing.password')}
                       value={parentPassword}
                       onChange={(e) => setParentPassword(e.target.value)}
                       required
@@ -215,7 +217,7 @@ const LandingPage: React.FC = () => {
                   </div>
                   {isRegistering && (
                     <p className="text-white/70 text-xs px-2 font-medium">
-                      Password must be between 6 and 8 characters long
+                      {t('landing.password_hint')}
                     </p>
                   )}
                   {loginError && (
@@ -235,7 +237,7 @@ const LandingPage: React.FC = () => {
                     {isAuthLoading ? (
                       <Loader2 className="animate-spin" size={18} />
                     ) : (
-                      isRegistering ? 'Register' : 'Login'
+                      isRegistering ? t('landing.register') : t('landing.login')
                     )}
                   </button>
                   <div className="flex items-center justify-between text-xs">
@@ -244,7 +246,7 @@ const LandingPage: React.FC = () => {
                       onClick={() => setIsRegistering(!isRegistering)}
                       className="text-white/80 hover:text-white font-semibold underline"
                     >
-                      {isRegistering ? 'Already have an account? Login' : 'Need an account? Register'}
+                      {isRegistering ? t('landing.have_account') : t('landing.no_account')}
                     </button>
                     <button
                       type="button"
@@ -256,7 +258,7 @@ const LandingPage: React.FC = () => {
                       }}
                       className="text-white/60 hover:text-white/80 font-semibold"
                     >
-                      Cancel
+                      {t('landing.cancel')}
                     </button>
                   </div>
                 </motion.form>
@@ -273,13 +275,13 @@ const LandingPage: React.FC = () => {
         className="mt-12 flex flex-wrap gap-6 justify-center text-slate-600 font-semibold text-sm relative z-10"
       >
         <span className="flex items-center gap-2 px-4 py-2 glass rounded-full">
-          <Sparkles size={16} className="text-indigo-500" /> Age-Adaptive
+          <Sparkles size={16} className="text-indigo-500" /> {t('landing.feature_age_adaptive')}
         </span>
         <span className="flex items-center gap-2 px-4 py-2 glass rounded-full">
-          <Sparkles size={16} className="text-purple-500" /> Curriculum Grounded
+          <Sparkles size={16} className="text-purple-500" /> {t('landing.feature_curriculum_grounded')}
         </span>
         <span className="flex items-center gap-2 px-4 py-2 glass rounded-full">
-          <Sparkles size={16} className="text-pink-500" /> Privacy First
+          <Sparkles size={16} className="text-pink-500" /> {t('landing.feature_privacy_first')}
         </span>
       </motion.div>
     </div>

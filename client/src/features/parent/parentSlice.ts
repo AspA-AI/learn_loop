@@ -24,6 +24,7 @@ interface ParentInsight {
 interface CurriculumDoc {
   id: string;
   file_name: string;
+  file_size?: number;
   created_at: string;
   children: { child_id: string }[];
 }
@@ -33,7 +34,7 @@ interface ParentState {
   curriculum: CurriculumDoc[];
   isLoading: boolean;
   error: string | null;
-  currentView: 'insights' | 'children' | 'curriculum' | 'settings';
+  currentView: 'insights' | 'children' | 'curriculum' | 'reports' | 'settings';
 }
 
 const initialState: ParentState = {

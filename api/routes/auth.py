@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, field_validator
 from services.supabase_service import supabase_service
+from models.schemas import ParentProfile
 from utils.auth import hash_password, verify_password, create_access_token, decode_access_token
 from typing import Optional
 
@@ -23,6 +24,7 @@ class ParentRegister(BaseModel):
     email: EmailStr
     password: str
     name: Optional[str] = None
+    preferred_language: str = "English"
     
     @field_validator('password')
     @classmethod
@@ -43,11 +45,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     parent_id: str
     email: str
-
-class ParentProfile(BaseModel):
-    id: str
-    email: str
-    name: Optional[str] = None
+    preferred_language: str = "English"
 
 # Dependency to get current authenticated parent
 async def get_current_parent(token: str = Depends(oauth2_scheme)) -> dict:
@@ -87,7 +85,8 @@ async def register_parent(request: ParentRegister):
         parent = supabase_service.create_parent(
             email=request.email,
             password_hash=password_hash,
-            name=request.name
+            name=request.name,
+            preferred_language=request.preferred_language
         )
         
         # Create access token
@@ -96,7 +95,8 @@ async def register_parent(request: ParentRegister):
         return TokenResponse(
             access_token=access_token,
             parent_id=str(parent["id"]),
-            email=parent["email"]
+            email=parent["email"],
+            preferred_language=parent.get("preferred_language", "English")
         )
     except ValueError as e:
         error_msg = str(e)
@@ -152,7 +152,8 @@ async def login_parent(form_data: OAuth2PasswordRequestForm = Depends()):
         return TokenResponse(
             access_token=access_token,
             parent_id=str(parent["id"]),
-            email=parent["email"]
+            email=parent["email"],
+            preferred_language=parent.get("preferred_language", "English")
         )
     except HTTPException:
         raise
@@ -166,6 +167,7 @@ async def get_current_parent_profile(current_parent: dict = Depends(get_current_
     return ParentProfile(
         id=str(current_parent["id"]),
         email=current_parent["email"],
-        name=current_parent.get("name")
+        name=current_parent.get("name"),
+        preferred_language=current_parent.get("preferred_language", "English")
     )
 
