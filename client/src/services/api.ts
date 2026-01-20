@@ -9,6 +9,88 @@ const apiClient = axios.create({
   },
 });
 
+// Add token to requests
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('parent_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 errors
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('parent_token');
+      // Don't redirect automatically - let components handle it
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Auth API
+export interface ParentRegister {
+  email: string;
+  password: string;
+  name?: string;
+}
+
+export interface ParentLogin {
+  email: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  parent_id: string;
+  email: string;
+}
+
+export const authApi = {
+  register: async (data: ParentRegister): Promise<TokenResponse> => {
+    const response = await apiClient.post('/auth/register', data);
+    const tokenData = response.data;
+    localStorage.setItem('parent_token', tokenData.access_token);
+    return tokenData;
+  },
+
+  login: async (data: ParentLogin): Promise<TokenResponse> => {
+    // OAuth2PasswordRequestForm expects form data with username/password
+    const formData = new URLSearchParams();
+    formData.append('username', data.email);
+    formData.append('password', data.password);
+    
+    const response = await apiClient.post('/auth/login', formData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+    const tokenData = response.data;
+    localStorage.setItem('parent_token', tokenData.access_token);
+    return tokenData;
+  },
+
+  logout: () => {
+    localStorage.removeItem('parent_token');
+  },
+
+  isAuthenticated: (): boolean => {
+    return !!localStorage.getItem('parent_token');
+  },
+
+  getToken: (): string | null => {
+    return localStorage.getItem('parent_token');
+  },
+};
+
 export interface StartSessionParams {
   learning_code: string;
 }
@@ -22,6 +104,11 @@ export interface InteractParams {
 export interface ChildCreate {
   name: string;
   age_level: number;
+  learning_style?: string;
+  interests?: string[];
+  reading_level?: string;
+  attention_span?: string;
+  strengths?: string[];
 }
 
 export interface ChildUpdate {
@@ -85,6 +172,11 @@ export const learningApi = {
     return response.data;
   },
 
+  removeCurriculum: async (documentId: string) => {
+    const response = await apiClient.delete(`/parent/curriculum/${documentId}`);
+    return response.data;
+  },
+
   getParentInsights: async (week: string) => {
     const response = await apiClient.get('/parent/insights', {
       params: { week },
@@ -109,14 +201,20 @@ export const learningApi = {
 
   // --- Topic Management ---
 
+  getChildSubjects: async (childId: string) => {
+    const response = await apiClient.get(`/parent/children/${childId}/subjects`);
+    return response.data.subjects || [];
+  },
+
   getChildTopics: async (childId: string) => {
     const response = await apiClient.get(`/parent/children/${childId}/topics`);
     return response.data;
   },
 
-  addChildTopic: async (childId: string, topic: string, setAsActive: boolean = false) => {
+  addChildTopic: async (childId: string, topic: string, subject: string = "General", setAsActive: boolean = false) => {
     const response = await apiClient.post(`/parent/children/${childId}/topics`, {
       topic,
+      subject,
       set_as_active: setAsActive
     });
     return response.data;
@@ -129,6 +227,32 @@ export const learningApi = {
 
   removeChildTopic: async (childId: string, topicId: string) => {
     const response = await apiClient.delete(`/parent/children/${childId}/topics/${topicId}`);
+    return response.data;
+  },
+
+  // --- Subject Document Management ---
+
+  getSubjectDocuments: async (childId: string, subject: string) => {
+    const response = await apiClient.get(`/parent/children/${childId}/subjects/${encodeURIComponent(subject)}/documents`);
+    return response.data;
+  },
+
+  uploadSubjectDocument: async (childId: string, subject: string, topic: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('topic', topic);
+    const response = await apiClient.post(
+      `/parent/children/${childId}/subjects/${encodeURIComponent(subject)}/documents`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }
+    );
+    return response.data;
+  },
+
+  removeSubjectDocument: async (childId: string, subject: string, documentId: string) => {
+    const response = await apiClient.delete(`/parent/children/${childId}/subjects/${encodeURIComponent(subject)}/documents/${documentId}`);
     return response.data;
   },
 

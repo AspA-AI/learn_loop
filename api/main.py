@@ -4,8 +4,10 @@ import colorlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from core.config import settings
-from routes import session, parent
+from routes import session, parent, auth
 
 # Configure colored logging using dictConfig (works with uvicorn)
 LOGGING_CONFIG = {
@@ -69,6 +71,54 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
+# Validation Error Handler - handles Pydantic validation errors (422)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle Pydantic validation errors and return user-friendly messages"""
+    errors = exc.errors()
+    error_messages = []
+    MIN_PASSWORD_LENGTH = 6  # Match the constant in auth.py
+    
+    for error in errors:
+        field = ".".join(str(loc) for loc in error.get("loc", []))
+        message = error.get("msg", "Validation error")
+        error_type = error.get("type", "")
+        ctx = error.get("ctx", {})
+        
+        # Format user-friendly messages based on field and error type
+        if "password" in field.lower():
+            if "string_too_short" in error_type:
+                min_length = ctx.get("min_length", MIN_PASSWORD_LENGTH)
+                message = f"Password must be at least {min_length} characters long"
+            elif "value_error" in error_type:
+                # Extract the actual ValueError message from context
+                if "error" in ctx and isinstance(ctx["error"], ValueError):
+                    # Get the message from the ValueError object
+                    message = str(ctx["error"])
+                else:
+                    # Fallback: remove "Value error, " prefix if present
+                    message_str = str(message)
+                    if message_str.startswith("Value error, "):
+                        message = message_str.replace("Value error, ", "", 1)
+                    else:
+                        message = message_str
+                # Handle password length errors
+                if "too long" in message.lower() or "no more than" in message.lower():
+                    message = "Password must be between 6 and 8 characters long."
+        elif "email" in field.lower():
+            if "value_error" in error_type or "email" in error_type:
+                message = "Please enter a valid email address"
+        
+        error_messages.append(str(message))
+    
+    # Return the first error message (most relevant)
+    detail = error_messages[0] if error_messages else "Validation error"
+    
+    return JSONResponse(
+        status_code=422,
+        content={"detail": detail},
+    )
+
 # Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -88,6 +138,7 @@ app.add_middleware(
 )
 
 # Include Routers
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(parent.router, prefix="/api/v1")
 

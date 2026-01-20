@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Provider } from 'react-redux';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { store } from './store';
 import { useAppSelector, useAppDispatch } from './hooks/store';
-import { logout } from './features/user/userSlice';
+import { logout, checkAuth } from './features/user/userSlice';
 import { clearLearningState } from './features/learning/learningSlice';
 import LandingPage from './LandingPage';
 import Sidebar from './components/Sidebar';
@@ -57,7 +57,13 @@ const DashboardLayout: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
+  const dispatch = useAppDispatch();
   const { isAuthenticated } = useAppSelector((state) => state.user);
+
+  useEffect(() => {
+    // Check if user has a valid token on app load
+    dispatch(checkAuth());
+  }, [dispatch]);
 
   return isAuthenticated ? <DashboardLayout /> : <LandingPage />;
 };

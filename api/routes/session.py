@@ -8,6 +8,7 @@ from agents.insight import insight_agent
 from services.supabase_service import supabase_service
 from services.weaviate_service import weaviate_service
 from services.openai_service import openai_service
+from utils.curriculum_reader import read_curriculum_files
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
@@ -18,6 +19,11 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 # In-memory quiz state storage (keyed by session_id)
 # Format: {session_id: {"questions": [...], "current_index": 0, "answers": [...], "scores": [...]}}
 quiz_states: Dict[str, Dict[str, Any]] = {}
+
+# In-memory session context storage (keyed by session_id)
+# Stores retrieved document chunks for the entire session to avoid repeated RAG calls
+# Format: {session_id: "combined_context_string"}
+session_contexts: Dict[str, str] = {}
 
 @router.post("/start", response_model=SessionStartResponse)
 async def start_session(request: SessionStartRequest):
@@ -43,11 +49,46 @@ async def start_session(request: SessionStartRequest):
         # 2. Create session in Supabase
         session_id = supabase_service.create_session(child_id, concept, age_level)
         
-        # 3. Check Weaviate for grounding context (RAG)
-        # TODO: Filter by child's assigned curriculum in Weaviate
-        grounding_context = weaviate_service.retrieve_curriculum_context(concept, age_level)
+        # 3. Retrieve ALL document chunks for this topic ONCE at session start
+        # This avoids repeated RAG calls during the conversation
+        subject = active_topic.get("subject") if active_topic else None
+        document_context = weaviate_service.retrieve_all_topic_chunks(
+            child_id=child_id,
+            topic=concept,
+            subject=subject
+        )
         
-        # 4. Extract learning profile from child data (if available)
+        # 4. Get curriculum files for this child and read their content
+        curriculum_files = supabase_service.get_child_curriculum_files(child_id)
+        curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
+        
+        # 5. Combine all context sources
+        context_parts = []
+        
+        if document_context:
+            context_parts.append(f"Reference Documents for Topic '{concept}':\n{document_context}")
+            logger.info(f"📚 [SESSION START] Retrieved document context for topic '{concept}' ({len(document_context)} chars)")
+        
+        if curriculum_content:
+            context_parts.append(f"Child's Curriculum Materials:\n{curriculum_content}")
+            logger.info(f"📖 [SESSION START] Loaded curriculum content ({len(curriculum_content)} chars)")
+        
+        # Combine all context
+        combined_context = "\n\n---\n\n".join(context_parts) if context_parts else None
+        
+        # Store combined context in memory for this session
+        if combined_context:
+            session_contexts[session_id] = combined_context
+            logger.info(f"💾 [SESSION START] Cached combined context ({len(combined_context)} chars)")
+        else:
+            logger.info(f"📚 [SESSION START] No document chunks or curriculum found for topic '{concept}'")
+        
+        # 6. Fallback to general curriculum context (RAG) if no documents or curriculum
+        grounding_context = combined_context
+        if not grounding_context:
+            grounding_context = weaviate_service.retrieve_curriculum_context(concept, age_level)
+        
+        # 7. Extract learning profile from child data (if available)
         learning_profile = None
         if any(child.get(key) for key in ["learning_style", "interests", "reading_level", "attention_span", "strengths"]):
             learning_profile = {
@@ -58,7 +99,7 @@ async def start_session(request: SessionStartRequest):
                 "strengths": child.get("strengths")
             }
         
-        # 5. Get initial explanation from Explainer Agent
+        # 8. Get initial explanation from Explainer Agent
         initial_explanation = await explainer_agent.get_initial_explanation(
             concept=concept,
             age_level=age_level,
@@ -67,7 +108,7 @@ async def start_session(request: SessionStartRequest):
             learning_profile=learning_profile
         )
         
-        # 6. Save initial interaction to Supabase
+        # 9. Save initial interaction to Supabase
         supabase_service.add_interaction(session_id, "assistant", initial_explanation)
         
         # All academic concepts follow the structured flow: greeting → story → academic → ongoing
@@ -199,7 +240,11 @@ async def interact(
                 confusion_attempts = 0
         
         # 4. Get adaptive response from Explainer Agent (step-by-step for math)
-        grounding_context = weaviate_service.retrieve_curriculum_context(session["concept"], session["age_level"])
+        # Use stored document context from session start (avoids repeated RAG calls)
+        grounding_context = session_contexts.get(session_id)
+        if not grounding_context:
+            # Fallback to general curriculum context if no subject documents
+            grounding_context = weaviate_service.retrieve_curriculum_context(session["concept"], session["age_level"])
         
         # Handle step-by-step flow for ALL academic concepts
         if conversation_phase == "story_explanation":
@@ -388,6 +433,11 @@ async def end_session(session_id: str):
         
         # 6. Save report to session and mark as completed
         supabase_service.end_session(session_id, evaluation_report)
+        
+        # 7. Clean up session context from memory
+        if session_id in session_contexts:
+            del session_contexts[session_id]
+            logger.info(f"🧹 [SESSION END] Cleaned up cached context for session {session_id}")
         
         return SessionEndResponse(
             success=True,

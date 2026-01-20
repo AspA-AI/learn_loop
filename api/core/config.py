@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     WEAVIATE_URL: Optional[str] = None
     WEAVIATE_API_KEY: Optional[str] = None
     
+    # Authentication
+    JWT_SECRET: str = "your-secret-key-change-in-production"  # Change this in production!
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_HOURS: int = 24 * 7  # 7 days
+    
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

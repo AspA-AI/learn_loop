@@ -7,12 +7,24 @@ DROP TABLE IF EXISTS public.sessions CASCADE;
 DROP TABLE IF EXISTS public.child_topics CASCADE;
 DROP TABLE IF EXISTS public.child_curriculum CASCADE;
 DROP TABLE IF EXISTS public.curriculum_documents CASCADE;
+DROP TABLE IF EXISTS public.subject_documents CASCADE;
 DROP TABLE IF EXISTS public.children CASCADE;
+DROP TABLE IF EXISTS public.parents CASCADE;
+
+-- Table for Parents (User Accounts)
+CREATE TABLE public.parents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL, -- Hashed password (use bcrypt or similar)
+    name TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Table for Children Profiles (Managed by Parents)
 CREATE TABLE public.children (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    parent_id UUID NOT NULL, -- Link to the parent (Supabase Auth ID)
+    parent_id UUID NOT NULL REFERENCES public.parents(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     age_level INTEGER NOT NULL, -- Any age (removed restriction to allow flexibility)
     learning_code TEXT UNIQUE NOT NULL, -- e.g. LEO-123
@@ -42,11 +54,25 @@ CREATE TABLE public.curriculum_documents (
 CREATE TABLE public.child_topics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL DEFAULT 'General', -- e.g. Math, Science, Language
     topic TEXT NOT NULL,
     is_active BOOLEAN DEFAULT FALSE, -- Only one topic can be active per child
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(child_id, topic) -- Prevent duplicate topics for same child
+    UNIQUE(child_id, subject, topic) -- Prevent duplicate topics for same child in same subject
+);
+
+-- Table for Subject Documents (Documents uploaded per subject)
+CREATE TABLE public.subject_documents (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    child_id UUID REFERENCES public.children(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    file_size INTEGER NOT NULL, -- File size in bytes
+    storage_path TEXT, -- Path in Supabase Storage
+    weaviate_collection_id TEXT, -- Reference to Weaviate collection
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(child_id, subject, file_name) -- Prevent duplicate files per subject
 );
 
 -- Many-to-Many relationship between Children and Curriculum
@@ -80,8 +106,14 @@ CREATE TABLE public.interactions (
 );
 
 -- Indexes
+CREATE INDEX idx_parents_email ON public.parents(email);
+CREATE INDEX idx_children_parent_id ON public.children(parent_id);
 CREATE INDEX idx_children_learning_code ON public.children(learning_code);
 CREATE INDEX idx_child_topics_child_id ON public.child_topics(child_id);
 CREATE INDEX idx_child_topics_active ON public.child_topics(child_id, is_active) WHERE is_active = TRUE;
 CREATE INDEX idx_sessions_child_id ON public.sessions(child_id);
 CREATE INDEX idx_sessions_concept ON public.sessions(concept);
+CREATE INDEX idx_subject_documents_child_subject ON public.subject_documents(child_id, subject);
+CREATE INDEX idx_curriculum_documents_parent_id ON public.curriculum_documents(parent_id);
+CREATE INDEX idx_child_curriculum_child_id ON public.child_curriculum(child_id);
+CREATE INDEX idx_child_curriculum_document_id ON public.child_curriculum(document_id);

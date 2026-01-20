@@ -116,12 +116,14 @@ class ParentInsight(BaseModel):
 class ChildTopic(BaseModel):
     id: UUID
     child_id: UUID
+    subject: str
     topic: str
     is_active: bool
     created_at: str
     updated_at: Optional[str] = None
 
 class TopicCreate(BaseModel):
+    subject: str
     topic: str
     set_as_active: bool = False  # If True, makes this topic active and deactivates others
 

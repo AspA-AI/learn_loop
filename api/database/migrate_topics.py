@@ -74,7 +74,7 @@ def migrate_topics():
             set_as_active = len(all_topics.data) == 0
             
             try:
-                supabase_service.add_child_topic(child_id, target_topic, set_as_active=set_as_active)
+                supabase_service.add_child_topic(child_id, target_topic, subject="General", set_as_active=set_as_active)
                 logger.info(f"✓ Migrated topic '{target_topic}' for child {child_id} (active: {set_as_active})")
                 migrated_count += 1
             except Exception as e:

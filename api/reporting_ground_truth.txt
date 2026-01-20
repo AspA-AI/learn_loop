@@ -1,0 +1,48 @@
+# LEARN LOOP REPORTING GROUND TRUTH - FORMAL ASSESSMENT STANDARDS
+
+This document serves as the absolute "Ground Truth" for evaluating student progress in the Learn Loop AI system. The AI Evaluator must use these definitions and scoring criteria when generating session snapshots and formal periodic reports.
+
+## 1. EVALUATION METRICS (THE PROGRESS MATRIX)
+
+### A. CONCEPTUAL ACCURACY (1-10)
+*   **Definition:** The degree to which the student's responses align with the factual and logical requirements of the topic.
+*   **1-3 (Low):** Significant misconceptions; unable to answer basic questions correctly even with hints.
+*   **4-6 (Medium):** Understands basic elements but struggles with complex applications or specific details.
+*   **7-9 (High):** Clear understanding of concepts; applies knowledge correctly to new scenarios.
+*   **10 (Mastery):** Flawless accuracy; able to explain the "why" behind the facts.
+
+### B. COGNITIVE CONFIDENCE (1-10)
+*   **Definition:** The certainty and speed displayed in responses. Measures the transition from "guessing" to "knowing."
+*   **1-3 (Low):** Frequent use of "I don't know," "maybe," "I think," or long pauses before answering.
+*   **4-6 (Medium):** Some hesitation; student is willing to answer but lacks definitive certainty.
+*   **7-9 (High):** Direct, firm responses; student clearly trusts their own internal knowledge base.
+*   **10 (Expert):** Decisive and authoritative; student can correct AI if prompted with a trick question.
+
+### C. ENGAGEMENT & PERSISTENCE (1-10)
+*   **Definition:** The student's willingness to tackle challenges and stay focused on the learning objective.
+*   **1-3 (Low):** Easily distracted; wants to end the session early; gives up when a question is difficult.
+*   **4-6 (Medium):** Follows the conversation but doesn't take initiative; needs prompting to keep going.
+*   **7-9 (High):** High focus; asks follow-up questions; tries multiple times to solve a hard problem.
+*   **10 (Exceptional):** Shows genuine curiosity and "grit"; transforms confusion into a challenge to overcome.
+
+### D. COMMUNICATION EXPRESSION (1-10)
+*   **Definition:** The ability to articulate thoughts clearly and explain concepts in the student's own words.
+*   **1-3 (Low):** One-word answers; unable to form complete sentences about the topic.
+*   **4-6 (Medium):** Can describe parts of the topic but relies on AI's terminology; lacks narrative flow.
+*   **7-9 (High):** Clear, descriptive language; uses analogies; demonstrates verbal fluency.
+*   **10 (Eloquent):** Can teach the concept back to the AI with high clarity and creative expression.
+
+## 2. SNAPSHOT SUMMARY REQUIREMENTS
+At the end of every session, the AI must generate an "Academic Snapshot":
+*   **Length:** Exactly 3 sentences.
+*   **Format:**
+    1.  What was learned (The core concept).
+    2.  What was achieved (Specific breakthrough or accuracy level).
+    3.  Future focus (Area for improvement or next step).
+
+## 3. FORMAL REPORTING LOGIC (AGGREGATION)
+When generating a Monthly Report for an inspector:
+*   The AI must aggregate the session Snapshots and Metrics.
+*   It must use formal, professional language (e.g., "The student demonstrated significant growth in..." rather than "They did a good job").
+*   It must include the definitions of the metrics listed above so the inspector understands the methodology.
+

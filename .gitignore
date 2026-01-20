@@ -1,1 +1,4 @@
 api/.env
+
+# Curriculum files (stored locally until S3 bucket is available)
+curriculum/

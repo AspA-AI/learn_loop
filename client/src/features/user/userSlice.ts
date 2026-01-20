@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import { learningApi, type ChildCreate, type ChildUpdate } from '../../services/api';
+import { learningApi, authApi, type ChildCreate, type ChildUpdate, type ParentLogin, type ParentRegister } from '../../services/api';
 
 interface ChildProfile {
   id: string;
@@ -40,6 +40,34 @@ export const pinTopic = createAsyncThunk('user/pinTopic', async ({ childId, topi
   return await learningApi.updateChild(childId, { target_topic: topic });
 });
 
+export const parentLogin = createAsyncThunk('user/parentLogin', async (data: ParentLogin, { rejectWithValue }) => {
+  try {
+    return await authApi.login(data);
+  } catch (error: any) {
+    // Extract error message from axios error response
+    const errorMessage = error?.response?.data?.detail || 
+                        error?.message || 
+                        'Login failed. Please check your email and password.';
+    return rejectWithValue(errorMessage);
+  }
+});
+
+export const parentRegister = createAsyncThunk('user/parentRegister', async (data: ParentRegister, { rejectWithValue }) => {
+  try {
+    return await authApi.register(data);
+  } catch (error: any) {
+    // Extract error message from axios error response
+    const errorMessage = error?.response?.data?.detail || 
+                        error?.message || 
+                        'Registration failed. Please try again.';
+    return rejectWithValue(errorMessage);
+  }
+});
+
+export const checkAuth = createAsyncThunk('user/checkAuth', async () => {
+  return authApi.isAuthenticated();
+});
+
 const userSlice = createSlice({
   name: 'user',
   initialState,
@@ -65,6 +93,7 @@ const userSlice = createSlice({
       state.currentChild = null;
       state.isAuthenticated = false;
       state.loginError = null;
+      authApi.logout();
     },
   },
   extraReducers: (builder) => {
@@ -94,6 +123,42 @@ const userSlice = createSlice({
         const index = state.profiles.findIndex(p => p.id === updated.id);
         if (index !== -1) {
           state.profiles[index].target_topic = updated.target_topic;
+        }
+      })
+      .addCase(parentLogin.pending, (state) => {
+        state.isLoading = true;
+        state.loginError = null;
+      })
+      .addCase(parentLogin.fulfilled, (state) => {
+        state.isLoading = false;
+        state.role = 'parent';
+        state.isAuthenticated = true;
+        state.loginError = null;
+      })
+      .addCase(parentLogin.rejected, (state, action) => {
+        state.isLoading = false;
+        // Error message is now in action.payload (from rejectWithValue)
+        state.loginError = (action.payload as string) || 'Login failed. Please check your email and password.';
+      })
+      .addCase(parentRegister.pending, (state) => {
+        state.isLoading = true;
+        state.loginError = null;
+      })
+      .addCase(parentRegister.fulfilled, (state) => {
+        state.isLoading = false;
+        state.role = 'parent';
+        state.isAuthenticated = true;
+        state.loginError = null;
+      })
+      .addCase(parentRegister.rejected, (state, action) => {
+        state.isLoading = false;
+        // Error message is now in action.payload (from rejectWithValue)
+        state.loginError = (action.payload as string) || 'Registration failed. Please try again.';
+      })
+      .addCase(checkAuth.fulfilled, (state, action) => {
+        if (action.payload) {
+          state.isAuthenticated = true;
+          state.role = 'parent';
         }
       });
   },

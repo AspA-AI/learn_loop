@@ -37,22 +37,144 @@ class ExplainerAgent:
         # Learning profile context (if available)
         profile_context = ""
         if learning_profile:
-            profile_parts = []
-            if learning_profile.get("learning_style"):
-                profile_parts.append(f"Learning style: {learning_profile['learning_style']}")
-            if learning_profile.get("interests"):
-                interests = ", ".join(learning_profile["interests"]) if isinstance(learning_profile["interests"], list) else learning_profile["interests"]
-                profile_parts.append(f"Interests: {interests}")
-            if learning_profile.get("reading_level"):
-                profile_parts.append(f"Reading level: {learning_profile['reading_level']}")
-            if learning_profile.get("attention_span"):
-                profile_parts.append(f"Attention span: {learning_profile['attention_span']}")
-            if learning_profile.get("strengths"):
-                strengths = ", ".join(learning_profile["strengths"]) if isinstance(learning_profile["strengths"], list) else learning_profile["strengths"]
-                profile_parts.append(f"Strengths: {strengths}")
+            profile_instructions = []
             
-            if profile_parts:
-                profile_context = f"\n\nPERSONALIZATION:\n" + "\n".join(f"- {part}" for part in profile_parts) + "\nUse this information to personalize your explanations."
+            # Learning Style Adaptations
+            if learning_profile.get("learning_style"):
+                style = learning_profile["learning_style"].lower()
+                if style == "visual":
+                    profile_instructions.append(
+                        "LEARNING STYLE: VISUAL\n"
+                        "- Use visual symbols and emojis strategically (🔢, ➕, ➖, ✖️, ➗, 📊, 🎯)\n"
+                        "- Use vivid visual descriptions: 'Imagine a number line stretching out...', 'Picture 3 groups of 4 apples...'\n"
+                        "- Use spatial language: 'stack', 'arrange', 'organize', 'group', 'line up'\n"
+                        "- Encourage visual imagination: 'Can you picture this in your mind?', 'What do you see when you think about...?'\n"
+                        "- Use simple ASCII art for diagrams when helpful (e.g., arrays: ⬛⬛⬛⬛)\n"
+                        "- Suggest drawing: 'Try drawing this out!', 'Can you sketch what this looks like?'\n"
+                        "- DO NOT attempt to generate images or use image generation APIs"
+                    )
+                elif style == "auditory":
+                    profile_instructions.append(
+                        "LEARNING STYLE: AUDITORY\n"
+                        "- Use rhythm, rhymes, and sound patterns in explanations\n"
+                        "- Use sound-based analogies: 'It sounds like...', 'Listen to this pattern...'\n"
+                        "- Encourage verbal repetition: 'Say it out loud with me...', 'Repeat after me...'\n"
+                        "- Use musical or rhythmic language when appropriate\n"
+                        "- Suggest reading explanations aloud\n"
+                        "- Use onomatopoeia and sound effects in examples"
+                    )
+                elif style == "kinesthetic":
+                    profile_instructions.append(
+                        "LEARNING STYLE: KINESTHETIC\n"
+                        "- Suggest physical activities: 'Try this with your hands...', 'Can you act this out?'\n"
+                        "- Use movement-based analogies: 'Imagine you're jumping...', 'Think about running...'\n"
+                        "- Encourage hands-on practice: 'Use objects to show this...', 'Try building this...'\n"
+                        "- Use body movements in explanations: 'Stand up and...', 'Move your arms to show...'\n"
+                        "- Connect concepts to physical sensations and actions"
+                    )
+                elif style == "reading/writing":
+                    profile_instructions.append(
+                        "LEARNING STYLE: READING/WRITING\n"
+                        "- Encourage note-taking: 'Write this down...', 'Jot this in your own words...'\n"
+                        "- Use written exercises: 'Try writing out...', 'Put this in a sentence...'\n"
+                        "- Provide clear written explanations with structured text\n"
+                        "- Use lists, bullet points, and organized text formats\n"
+                        "- Encourage reading explanations carefully and writing responses"
+                    )
+            
+            # Attention Span Adaptations
+            if learning_profile.get("attention_span"):
+                span = learning_profile["attention_span"].lower()
+                if span == "short":
+                    profile_instructions.append(
+                        "ATTENTION SPAN: SHORT\n"
+                        "- Keep ALL explanations under 50 words (2-3 sentences maximum)\n"
+                        "- Break concepts into tiny, digestible chunks\n"
+                        "- Check understanding every 2 messages: 'Got it so far?', 'Still with me?'\n"
+                        "- Use quick transitions: move fast between ideas\n"
+                        "- After 3-4 exchanges, proactively suggest: 'Want to take a quick break, or keep going?'\n"
+                        "- Use very brief examples and keep questions short"
+                    )
+                elif span == "medium":
+                    profile_instructions.append(
+                        "ATTENTION SPAN: MEDIUM\n"
+                        "- Keep explanations to 3-4 sentences (50-75 words)\n"
+                        "- Check understanding every 3-4 messages\n"
+                        "- Break concepts into moderate chunks\n"
+                        "- After 5-6 exchanges, offer optional break: 'Doing great! Want to continue or take a moment?'"
+                    )
+                elif span == "long":
+                    profile_instructions.append(
+                        "ATTENTION SPAN: LONG\n"
+                        "- Can provide more detailed explanations (4-6 sentences, 75-100 words)\n"
+                        "- Can go deeper into concepts without frequent breaks\n"
+                        "- Check understanding every 5-6 messages\n"
+                        "- Can explore concepts more thoroughly"
+                    )
+            
+            # Reading Level Adaptations
+            if learning_profile.get("reading_level"):
+                level = learning_profile["reading_level"].lower()
+                if level == "beginner":
+                    profile_instructions.append(
+                        "READING LEVEL: BEGINNER\n"
+                        "- Use simple, common words only\n"
+                        "- Keep sentences short (5-8 words max)\n"
+                        "- Avoid complex vocabulary - use everyday language\n"
+                        "- Use simple sentence structures\n"
+                        "- Define any necessary technical terms immediately with simple words"
+                    )
+                elif level == "intermediate":
+                    profile_instructions.append(
+                        "READING LEVEL: INTERMEDIATE\n"
+                        "- Use age-appropriate vocabulary\n"
+                        "- Sentences can be moderate length (8-12 words)\n"
+                        "- Can introduce some new words with context clues\n"
+                        "- Use varied sentence structures"
+                    )
+                elif level == "advanced":
+                    profile_instructions.append(
+                        "READING LEVEL: ADVANCED\n"
+                        "- Can use richer, more sophisticated vocabulary\n"
+                        "- Can use longer, more complex sentences (12+ words)\n"
+                        "- Can explore nuanced concepts with appropriate language\n"
+                        "- Can use varied and complex sentence structures"
+                    )
+            
+            # Interests Integration
+            if learning_profile.get("interests"):
+                interests = learning_profile["interests"]
+                if isinstance(interests, list):
+                    interests_str = ", ".join(interests)
+                else:
+                    interests_str = str(interests)
+                profile_instructions.append(
+                    f"CHILD'S INTERESTS: {interests_str}\n"
+                    "- Incorporate these interests into examples and analogies\n"
+                    "- Use these topics to make explanations more engaging\n"
+                    "- Connect the concept to their interests: 'Remember how you like {interests_str}? Let's use that to understand...'\n"
+                    "- Personalize story explanations around these interests when possible"
+                )
+            
+            # Strengths Integration
+            if learning_profile.get("strengths"):
+                strengths = learning_profile["strengths"]
+                if isinstance(strengths, list):
+                    strengths_str = ", ".join(strengths)
+                else:
+                    strengths_str = str(strengths)
+                profile_instructions.append(
+                    f"CHILD'S STRENGTHS: {strengths_str}\n"
+                    "- Reference these strengths to build confidence: 'You're great at {strengths_str}, so let's use that skill here...'\n"
+                    "- Use strengths as bridges to new concepts\n"
+                    "- Provide positive reinforcement when they demonstrate these strengths\n"
+                    "- Connect new learning to their existing strengths"
+                )
+            
+            if profile_instructions:
+                profile_context = "\n\n" + "="*50 + "\nPERSONALIZATION INSTRUCTIONS\n" + "="*50 + "\n"
+                profile_context += "\n\n".join(profile_instructions)
+                profile_context += "\n\nIMPORTANT: These personalization guidelines are MANDATORY. Apply them consistently throughout all explanations, questions, and interactions.\n"
             
         return f"{self.role_description}\n\n{base_constraints}\n\n{age_context}{profile_context}"
 

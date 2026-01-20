@@ -2,6 +2,7 @@ import logging
 import uuid
 import random
 import string
+import warnings
 from datetime import datetime, timezone
 from supabase import create_client, Client
 from core.config import settings
@@ -9,6 +10,9 @@ from typing import List, Dict, Any, Optional
 from postgrest.exceptions import APIError
 
 logger = logging.getLogger(__name__)
+
+# Suppress Supabase deprecation warnings (they're harmless and will be fixed in future library versions)
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='supabase')
 
 class SupabaseService:
     def __init__(self):
@@ -21,6 +25,53 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
             self.client = None
+
+    # --- Parent Management ---
+    
+    def create_parent(self, email: str, password_hash: str, name: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new parent account"""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            # Check if email already exists
+            existing = self.client.table("parents").select("id").eq("email", email).execute()
+            if existing.data:
+                raise ValueError(f"Email address '{email}' is already registered")
+            
+            parent_data = {
+                "email": email,
+                "password_hash": password_hash,
+                "name": name
+            }
+            response = self.client.table("parents").insert(parent_data).execute()
+            return response.data[0]
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error creating parent: {e}")
+            raise e
+
+    def get_parent_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get parent by email"""
+        if not self.client:
+            return None
+        try:
+            response = self.client.table("parents").select("*").eq("email", email).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Error fetching parent by email: {e}")
+            return None
+
+    def get_parent_by_id(self, parent_id: str) -> Optional[Dict[str, Any]]:
+        """Get parent by ID"""
+        if not self.client:
+            return None
+        try:
+            response = self.client.table("parents").select("*").eq("id", parent_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Error fetching parent by id: {e}")
+            return None
 
     def _generate_learning_code(self, name: str) -> str:
         """Generates a code like LEO-123"""
@@ -92,6 +143,18 @@ class SupabaseService:
 
     # --- Topic Management ---
 
+    def get_child_subjects(self, child_id: str) -> List[str]:
+        """Get all unique subjects for a child"""
+        if not self.client:
+            return []
+        try:
+            response = self.client.table("child_topics").select("subject").eq("child_id", child_id).execute()
+            subjects = list(set([t["subject"] for t in response.data]))
+            return sorted(subjects) if subjects else []
+        except Exception as e:
+            logger.error(f"Error fetching child subjects: {e}")
+            return []
+    
     def get_child_topics(self, child_id: str) -> List[Dict[str, Any]]:
         """Get all topics for a child. If child_topics table is empty, migrates from target_topic."""
         if not self.client:
@@ -124,15 +187,15 @@ class SupabaseService:
             logger.error(f"Error fetching active topic: {e}")
             return None
 
-    def add_child_topic(self, child_id: str, topic: str, set_as_active: bool = False) -> Dict[str, Any]:
+    def add_child_topic(self, child_id: str, topic: str, subject: str = "General", set_as_active: bool = False) -> Dict[str, Any]:
         """Add a new topic to a child. If set_as_active is True, deactivates other topics."""
         if not self.client:
             raise Exception("Supabase client not initialized.")
         try:
-            # Check if topic already exists
-            existing = self.client.table("child_topics").select("*").eq("child_id", child_id).eq("topic", topic).execute()
+            # Check if topic already exists in this subject
+            existing = self.client.table("child_topics").select("*").eq("child_id", child_id).eq("subject", subject).eq("topic", topic).execute()
             if existing.data:
-                raise ValueError(f"Topic '{topic}' already exists for this child.")
+                raise ValueError(f"Topic '{topic}' already exists in subject '{subject}' for this child.")
             
             # If setting as active, deactivate all other topics first
             if set_as_active:
@@ -141,6 +204,7 @@ class SupabaseService:
             # Insert new topic
             topic_data = {
                 "child_id": child_id,
+                "subject": subject,
                 "topic": topic,
                 "is_active": set_as_active
             }
@@ -258,7 +322,7 @@ class SupabaseService:
             doc_data = {
                 "parent_id": parent_id,
                 "file_name": file_name,
-                "storage_path": storage_path,  # Path in Supabase Storage
+                "storage_path": storage_path,  # Local file path (e.g., "curriculum/{parent_id}/{file_name}")
                 "file_size": file_size  # Size in bytes
             }
             doc_response = self.client.table("curriculum_documents").insert(doc_data).execute()
@@ -272,6 +336,147 @@ class SupabaseService:
             return doc_response.data[0]
         except Exception as e:
             logger.error(f"Error adding curriculum document: {e}")
+            raise e
+
+    def get_child_curriculum_files(self, child_id: str) -> List[Dict[str, Any]]:
+        """Get all curriculum documents linked to a child"""
+        if not self.client:
+            return []
+        try:
+            # Get curriculum documents linked to this child
+            response = self.client.table("child_curriculum").select("document_id, curriculum_documents(*)").eq("child_id", child_id).execute()
+            
+            curriculum_files = []
+            for item in response.data:
+                if item.get("curriculum_documents"):
+                    doc = item["curriculum_documents"]
+                    curriculum_files.append({
+                        "id": doc.get("id"),
+                        "file_name": doc.get("file_name"),
+                        "storage_path": doc.get("storage_path"),  # Local file path
+                        "file_size": doc.get("file_size"),
+                        "created_at": doc.get("created_at")
+                    })
+            
+            return curriculum_files
+        except Exception as e:
+            logger.error(f"Error fetching child curriculum files: {e}")
+            return []
+
+    def remove_curriculum_for_child(self, child_id: str) -> List[str]:
+        """
+        Remove all curriculum documents for a specific child.
+        Also deletes orphaned documents (documents not linked to any other children).
+        Returns list of document IDs that were removed.
+        """
+        if not self.client:
+            return []
+        try:
+            # Get all curriculum documents linked to this child
+            response = self.client.table("child_curriculum").select("document_id").eq("child_id", child_id).execute()
+            
+            document_ids = [item["document_id"] for item in response.data]
+            
+            if not document_ids:
+                return []
+            
+            # Remove links from child_curriculum table
+            self.client.table("child_curriculum").delete().eq("child_id", child_id).execute()
+            
+            # Check which documents are orphaned (not linked to any other children)
+            orphaned_doc_ids = []
+            for doc_id in document_ids:
+                # Check if this document is still linked to any other children
+                remaining_links = self.client.table("child_curriculum").select("child_id").eq("document_id", doc_id).execute()
+                if not remaining_links.data:
+                    # Document is orphaned, delete it
+                    orphaned_doc_ids.append(doc_id)
+                    self.client.table("curriculum_documents").delete().eq("id", doc_id).execute()
+                    logger.info(f"Deleted orphaned curriculum document: {doc_id}")
+            
+            return document_ids
+        except Exception as e:
+            logger.error(f"Error removing curriculum for child: {e}")
+            raise e
+
+    def get_curriculum_document_paths(self, document_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get storage paths for curriculum documents by their IDs"""
+        if not self.client or not document_ids:
+            return []
+        try:
+            response = self.client.table("curriculum_documents").select("id, storage_path").in_("id", document_ids).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching curriculum document paths: {e}")
+            return []
+
+    # --- Subject Document Management ---
+
+    def get_subject_documents(self, child_id: str, subject: str) -> List[Dict[str, Any]]:
+        """Get all documents for a specific subject for a specific child"""
+        if not self.client:
+            return []
+        try:
+            response = self.client.table("subject_documents").select("*").eq("child_id", child_id).eq("subject", subject).order("created_at", desc=True).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching subject documents: {e}")
+            return []
+
+    def get_subject_documents_by_parent(self, parent_id: str, subject: str) -> List[Dict[str, Any]]:
+        """Get all documents for a specific subject across all children of a parent"""
+        if not self.client:
+            return []
+        try:
+            # First get all children of this parent
+            children_response = self.client.table("children").select("id").eq("parent_id", parent_id).execute()
+            child_ids = [child["id"] for child in children_response.data]
+            
+            if not child_ids:
+                return []
+            
+            # Get all documents for this subject from all children of this parent
+            response = self.client.table("subject_documents").select("*").in_("child_id", child_ids).eq("subject", subject).order("created_at", desc=True).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching subject documents by parent: {e}")
+            return []
+
+    def add_subject_document(self, child_id: str, subject: str, file_name: str, file_size: int, storage_path: Optional[str] = None, weaviate_collection_id: Optional[str] = None) -> Dict[str, Any]:
+        """Add a document to a subject for a specific child (max 2 per child per subject)"""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            # Check document count for this child and subject (max 2)
+            existing = self.get_subject_documents(child_id, subject)
+            if len(existing) >= 2:
+                raise ValueError(f"Maximum 2 documents allowed per subject per child. Please remove an existing document first.")
+            
+            doc_data = {
+                "child_id": child_id,
+                "subject": subject,
+                "file_name": file_name,
+                "file_size": file_size,
+                "storage_path": storage_path,
+                "weaviate_collection_id": weaviate_collection_id
+            }
+            response = self.client.table("subject_documents").insert(doc_data).execute()
+            return response.data[0]
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error adding subject document: {e}")
+            raise e
+
+    def remove_subject_document(self, child_id: str, document_id: str) -> bool:
+        """Remove a subject document"""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            self.client.table("subject_documents").delete().eq("id", document_id).eq("child_id", child_id).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error removing subject document: {e}")
             raise e
 
     # --- Session Management ---

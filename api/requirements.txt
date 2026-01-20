@@ -15,3 +15,7 @@ pytest-mock
 pytest-cov
 psycopg2-binary
 colorlog
+PyPDF2
+python-jose[cryptography]
+passlib[bcrypt]
+email-validator

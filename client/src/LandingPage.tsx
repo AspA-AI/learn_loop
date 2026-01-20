@@ -1,19 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAppDispatch, useAppSelector } from './hooks/store';
-import { setRole } from './features/user/userSlice';
+import { parentLogin, parentRegister, setRole } from './features/user/userSlice';
 import { startLearningSession, setError } from './features/learning/learningSlice';
-import { Sparkles, ShieldCheck, BookOpen, Key, Loader2, ArrowRight, GraduationCap } from 'lucide-react';
+import { Sparkles, ShieldCheck, BookOpen, Key, Loader2, ArrowRight, GraduationCap, Mail, Lock, User } from 'lucide-react';
 
 const LandingPage: React.FC = () => {
   const dispatch = useAppDispatch();
   const { error: sessionError, isLoading: isSessionLoading, sessionId } = useAppSelector((state) => state.learning);
+  const { isLoading: isAuthLoading, loginError } = useAppSelector((state) => state.user);
   const [studentCode, setStudentCode] = useState('');
+  const [showParentLogin, setShowParentLogin] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [parentEmail, setParentEmail] = useState('');
+  const [parentPassword, setParentPassword] = useState('');
+  const [parentName, setParentName] = useState('');
 
   const handleStudentLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (studentCode.trim()) {
       dispatch(startLearningSession({ learning_code: studentCode }));
+    }
+  };
+
+  const handleParentAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!parentEmail.trim() || !parentPassword.trim()) return;
+    
+    if (isRegistering) {
+      if (!parentName.trim()) return;
+      dispatch(parentRegister({ email: parentEmail, password: parentPassword, name: parentName }));
+    } else {
+      dispatch(parentLogin({ email: parentEmail, password: parentPassword }));
     }
   };
 
@@ -135,15 +153,115 @@ const LandingPage: React.FC = () => {
               </div>
             </div>
             
-            <div className="space-y-4">
-              <button
-                onClick={() => dispatch(setRole('parent'))}
-                className="w-full h-14 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all"
-              >
-                Access Dashboard
-              </button>
-              <p className="text-center text-xs text-white/60 font-semibold">Secure & Private</p>
-            </div>
+            <AnimatePresence mode="wait">
+              {!showParentLogin ? (
+                <motion.div
+                  key="button"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-4"
+                >
+                  <button
+                    onClick={() => setShowParentLogin(true)}
+                    className="w-full h-14 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all"
+                  >
+                    Login / Register
+                  </button>
+                  <p className="text-center text-xs text-white/60 font-semibold">Secure & Private</p>
+                </motion.div>
+              ) : (
+                <motion.form
+                  key="form"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  onSubmit={handleParentAuth}
+                  className="space-y-4"
+                >
+                  {isRegistering && (
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
+                      <input
+                        type="text"
+                        placeholder="Your name (optional)"
+                        value={parentName}
+                        onChange={(e) => setParentName(e.target.value)}
+                        className="w-full h-12 pl-12 pr-4 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 text-white placeholder:text-white/60 font-semibold outline-none focus:bg-white/30 focus:border-white/50 transition-all"
+                      />
+                    </div>
+                  )}
+                  <div className="relative">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      value={parentEmail}
+                      onChange={(e) => setParentEmail(e.target.value)}
+                      required
+                      className="w-full h-12 pl-12 pr-4 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 text-white placeholder:text-white/60 font-semibold outline-none focus:bg-white/30 focus:border-white/50 transition-all"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={parentPassword}
+                      onChange={(e) => setParentPassword(e.target.value)}
+                      required
+                      className="w-full h-12 pl-12 pr-4 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30 text-white placeholder:text-white/60 font-semibold outline-none focus:bg-white/30 focus:border-white/50 transition-all"
+                    />
+                  </div>
+                  {isRegistering && (
+                    <p className="text-white/70 text-xs px-2 font-medium">
+                      Password must be between 6 and 8 characters long
+                    </p>
+                  )}
+                  {loginError && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-red-200 text-sm font-semibold px-2"
+                    >
+                      ⚠️ {loginError}
+                    </motion.p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isAuthLoading || !parentEmail.trim() || !parentPassword.trim()}
+                    className="w-full h-12 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isAuthLoading ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      isRegistering ? 'Register' : 'Login'
+                    )}
+                  </button>
+                  <div className="flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setIsRegistering(!isRegistering)}
+                      className="text-white/80 hover:text-white font-semibold underline"
+                    >
+                      {isRegistering ? 'Already have an account? Login' : 'Need an account? Register'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowParentLogin(false);
+                        setParentEmail('');
+                        setParentPassword('');
+                        setParentName('');
+                      }}
+                      className="text-white/60 hover:text-white/80 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </motion.form>
+              )}
+            </AnimatePresence>
           </div>
         </motion.div>
       </div>
