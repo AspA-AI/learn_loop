@@ -138,5 +138,59 @@ class OpenAIService:
             logger.error(f"Error during audio transcription: {e}", exc_info=True)
             raise e
 
+    async def text_to_speech(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        voice: str = "alloy",
+    ) -> bytes:
+        """
+        Text-to-speech for child-facing playback.
+        Uses OpenAI TTS and returns MP3 bytes.
+        """
+        try:
+            # Keep instructions simple; provide language to improve pronunciation.
+            instructions = None
+            if language:
+                instructions = f"Speak naturally in {language}."
+
+            with opik_service.span(
+                name="openai.audio.speech.create",
+                span_type="llm",
+                input={
+                    "model": "gpt-4o-mini-tts",
+                    "voice": voice,
+                    "language": language,
+                    "text_len": len(text or ""),
+                },
+                model="gpt-4o-mini-tts",
+                provider="openai",
+            ) as span:
+                audio = await self.client.audio.speech.create(
+                    model="gpt-4o-mini-tts",
+                    voice=voice,
+                    input=text,
+                    response_format="mp3",
+                    instructions=instructions,
+                )
+                # OpenAI SDK returns HttpxBinaryResponseContent (not raw bytes).
+                # Extract bytes safely.
+                if hasattr(audio, "read") and callable(getattr(audio, "read")):
+                    data = audio.read()
+                elif hasattr(audio, "content"):
+                    data = audio.content  # type: ignore[attr-defined]
+                else:
+                    # Fallback for unexpected SDK shapes
+                    data = bytes(audio)  # type: ignore[arg-type]
+                try:
+                    if span is not None:
+                        span.update(output={"bytes": len(data)})
+                except Exception:
+                    pass
+                return data
+        except Exception as e:
+            logger.error(f"Error during text-to-speech: {e}", exc_info=True)
+            raise e
+
 openai_service = OpenAIService()
 

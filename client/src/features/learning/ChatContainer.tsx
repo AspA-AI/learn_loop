@@ -5,18 +5,71 @@ import { useAppSelector, useAppDispatch } from '../../hooks/store';
 import { submitInteraction, endSession, clearLearningState, addMessage, startQuiz, submitQuizAnswer, cancelQuiz } from './learningSlice';
 import { logout } from '../user/userSlice';
 import ProgressGauge from './ProgressGauge';
-import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle } from 'lucide-react';
+import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle, Volume2 } from 'lucide-react';
+import { learningApi } from '../../services/api';
 
 const ChatContainer: React.FC = () => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, conversationPhase, quiz } = useAppSelector((state) => state.learning);
+  const { sessionId, messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, conversationPhase, quiz } = useAppSelector((state) => state.learning);
   const [inputText, setInputText] = useState('');
   const [quizAnswer, setQuizAnswer] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // TTS (assistant message playback)
+  const ttsUrlByIndexRef = useRef<Record<number, string>>({});
+  const [ttsLoadingByIndex, setTtsLoadingByIndex] = useState<Record<number, boolean>>({});
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (currentAudioRef.current) currentAudioRef.current.pause();
+      } catch {}
+      for (const url of Object.values(ttsUrlByIndexRef.current)) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }
+    };
+  }, []);
+
+  const playAssistantAudio = async (messageIndex: number, text: string) => {
+    if (!sessionId) return;
+    if (!text?.trim()) return;
+
+    const existingUrl = ttsUrlByIndexRef.current[messageIndex];
+    if (existingUrl) {
+      try {
+        if (currentAudioRef.current) currentAudioRef.current.pause();
+      } catch {}
+      const a = new Audio(existingUrl);
+      currentAudioRef.current = a;
+      void a.play();
+      return;
+    }
+
+    setTtsLoadingByIndex((s) => ({ ...s, [messageIndex]: true }));
+    try {
+      const blob = await learningApi.tts(sessionId, text, 'alloy');
+      const url = URL.createObjectURL(blob);
+      ttsUrlByIndexRef.current[messageIndex] = url;
+
+      try {
+        if (currentAudioRef.current) currentAudioRef.current.pause();
+      } catch {}
+      const a = new Audio(url);
+      currentAudioRef.current = a;
+      void a.play();
+    } catch (e) {
+      // silently ignore; TTS is an optional convenience
+    } finally {
+      setTtsLoadingByIndex((s) => ({ ...s, [messageIndex]: false }));
+    }
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -195,6 +248,18 @@ const ChatContainer: React.FC = () => {
                               <Star size={12} className="text-indigo-500 fill-indigo-500" />
                             </div>
                             <p className="text-base leading-relaxed font-medium text-slate-800">{msg.content}</p>
+                            <div className="mt-3 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => playAssistantAudio(idx, msg.content)}
+                                disabled={!sessionId || !!ttsLoadingByIndex[idx]}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold hover:bg-indigo-100 disabled:opacity-50"
+                                title={t('child.listen')}
+                              >
+                                <Volume2 size={14} />
+                                {ttsLoadingByIndex[idx] ? t('child.loading_audio') : t('child.listen')}
+                              </button>
+                            </div>
                             {msg.transcribedText && (
                               <div className="mt-3 pt-3 border-t border-indigo-100 text-xs font-semibold text-indigo-600 flex items-center gap-2">
                                 <Mic size={12} /> {t('child.voice')}: "{msg.transcribedText}"

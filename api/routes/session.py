@@ -2,6 +2,8 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form, Query
 from models.schemas import SessionStartRequest, SessionStartResponse, InteractionResponse, UnderstandingState, SessionEndRequest, SessionEndResponse
+from pydantic import BaseModel, Field
+from fastapi.responses import Response
 from agents.explainer import explainer_agent
 from agents.evaluator import evaluator_agent
 from agents.insight import insight_agent
@@ -25,6 +27,11 @@ quiz_states: Dict[str, Dict[str, Any]] = {}
 # Stores retrieved document chunks for the entire session to avoid repeated RAG calls
 # Format: {session_id: "combined_context_string"}
 session_contexts: Dict[str, str] = {}
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    voice: str = Field(default="alloy", min_length=1, max_length=32)
 
 @router.post("/start", response_model=SessionStartResponse)
 async def start_session(request: SessionStartRequest):
@@ -420,6 +427,48 @@ async def interact(
     except Exception as e:
         logger.error(f"Error during interaction for session {session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred during the interaction.")
+
+
+@router.post("/{session_id}/tts")
+async def tts(session_id: str, request: TTSRequest):
+    """
+    Generate speech audio for a given text in the context of a child session.
+    Returns MP3 bytes. Used by child UI to "play" assistant messages.
+    """
+    try:
+        # Verify session exists and fetch child's learning language for pronunciation
+        session = supabase_service.get_session(session_id)
+        child_id = session.get("child_id")
+        learning_language = "English"
+        if child_id and supabase_service.client:
+            try:
+                child_response = supabase_service.client.table("children").select("learning_language").eq("id", child_id).execute()
+                if child_response.data:
+                    learning_language = child_response.data[0].get("learning_language", "English")
+            except Exception as e:
+                logger.warning(f"Could not fetch learning language for TTS: {e}")
+
+        set_opik_thread_id(f"child_session:{session_id}")
+        with opik_service.trace(
+            name="session.tts",
+            input={"session_id": session_id, "text_len": len(request.text or ""), "voice": request.voice},
+            metadata={"route": "/sessions/{session_id}/tts"},
+            tags=["child", "tts"],
+        ):
+            audio_bytes = await openai_service.text_to_speech(
+                text=request.text,
+                language=learning_language,
+                voice=request.voice,
+            )
+
+        return Response(content=audio_bytes, media_type="audio/mpeg")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during TTS for session {session_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to generate speech.")
 
 @router.post("/{session_id}/end", response_model=SessionEndResponse)
 async def end_session(session_id: str):

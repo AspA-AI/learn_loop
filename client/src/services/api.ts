@@ -177,6 +177,15 @@ export const learningApi = {
     return response.data;
   },
 
+  tts: async (sessionId: string, text: string, voice: string = 'alloy'): Promise<Blob> => {
+    const response = await apiClient.post(
+      `/sessions/${sessionId}/tts`,
+      { text, voice },
+      { responseType: 'blob' }
+    );
+    return response.data as Blob;
+  },
+
   endSession: async (sessionId: string) => {
     const response = await apiClient.post(`/sessions/${sessionId}/end`);
     return response.data;
