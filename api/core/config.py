@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     OPIK_URL: Optional[str] = None  # Optional: self-hosted instance URL
     OPIK_PROJECT: str = "learn_loop"
     OPIK_ENABLED: bool = True
+
+    # Deployment: optionally serve the built frontend from the backend container
+    SERVE_CLIENT: bool = False
     
     # Supabase
     SUPABASE_URL: Optional[str] = None

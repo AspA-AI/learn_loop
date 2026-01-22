@@ -2,12 +2,14 @@ import logging
 import logging.config
 import colorlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from core.config import settings
 from routes import session, parent, auth
+from pathlib import Path
+from starlette.staticfiles import StaticFiles
 
 # Configure colored logging using dictConfig (works with uvicorn)
 LOGGING_CONFIG = {
@@ -141,6 +143,25 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(parent.router, prefix="/api/v1")
+
+# -----------------------------------------------------------------------------
+# Optional: serve built frontend (single-service deploy)
+# Docker build copies Vite output to api/static
+# -----------------------------------------------------------------------------
+_static_dir = Path(__file__).resolve().parent / "static"
+if getattr(settings, "SERVE_CLIENT", False) and _static_dir.exists():
+    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
+
+    @app.get("/{path:path}")
+    async def spa_fallback(path: str):
+        # Never intercept API routes
+        if path.startswith("api/") or path.startswith("api"):
+            return JSONResponse(status_code=404, content={"message": "Not Found"})
+
+        index_file = _static_dir / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+        return JSONResponse(status_code=404, content={"message": "Frontend not built"})
 
 @app.on_event("startup")
 async def startup_event():

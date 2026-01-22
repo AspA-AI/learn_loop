@@ -1,0 +1,18 @@
+.git/
+.github/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# local envs
+api/venv/
+api/.venv/
+client/node_modules/
+
+# local secrets
+**/.env
+
+# local curriculum files (ephemeral anyway)
+api/curriculum/
+
+

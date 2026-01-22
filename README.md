@@ -362,3 +362,15 @@ Backend env vars (minimum):
 
 Curriculum uploads are currently stored on the backend filesystem. On many free hosts the filesystem is **ephemeral**, so uploads may disappear on redeploy/restart. For production you’ll want persistent disk or an object store (S3/Supabase Storage).
 
+### Railway note (monorepo)
+
+You have **two options**:
+
+1) **Recommended (2 services)** in one Railway project:
+- **Backend service**: set root directory to `api/` (or deploy using `api/Dockerfile`)
+- **Frontend service**: set root directory to `client/` (or deploy frontend to Vercel instead)
+
+2) **Single Railway service (one deploy)**:
+- Use the repo-root `Dockerfile` (builds `client` and runs `api`)
+- Set `SERVE_CLIENT=true` in backend env vars (so FastAPI serves the built frontend)
+
