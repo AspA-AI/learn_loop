@@ -2,15 +2,15 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAppSelector, useAppDispatch } from '../../hooks/store';
-import { submitInteraction, endSession, clearLearningState, addMessage, setLoading, startQuiz, submitQuizAnswer, cancelQuiz } from './learningSlice';
+import { submitInteraction, endSession, clearLearningState, addMessage, startQuiz, submitQuizAnswer, cancelQuiz } from './learningSlice';
 import { logout } from '../user/userSlice';
 import ProgressGauge from './ProgressGauge';
-import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, Loader2, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle } from 'lucide-react';
+import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle } from 'lucide-react';
 
 const ChatContainer: React.FC = () => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, sessionId, conversationPhase, quiz } = useAppSelector((state) => state.learning);
+  const { messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, conversationPhase, quiz } = useAppSelector((state) => state.learning);
   const [inputText, setInputText] = useState('');
   const [quizAnswer, setQuizAnswer] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -26,64 +26,20 @@ const ChatContainer: React.FC = () => {
   }, [messages, isLoading, quiz.active]);
 
   const handleEndSession = async () => {
-    let confirmationContent = "";
-    if (understandingState === 'understood') {
-      confirmationContent = t('child.confirmation_understood');
-    } else if (understandingState === 'partial') {
-      confirmationContent = t('child.confirmation_partial');
-    } else {
-      confirmationContent = t('child.confirmation_confused');
-    }
-    
-    dispatch(addMessage({
-      role: 'assistant',
-      content: confirmationContent,
-      type: 'text'
-    }));
-    
-    dispatch(setLoading(true));
-    
     try {
       const result = await dispatch(endSession());
       
       if (endSession.fulfilled.match(result)) {
-        let successContent = "";
-        if (understandingState === 'understood') {
-          successContent = t('child.success_understood');
-        } else if (understandingState === 'partial') {
-          successContent = t('child.success_partial');
-        } else {
-          successContent = t('child.success_confused');
-        }
-        
-        dispatch(addMessage({
-          role: 'assistant',
-          content: successContent,
-          type: 'text'
-        }));
-        
+        // No extra chat messages. End the session and return to landing page after a short delay.
         setTimeout(() => {
-          dispatch(addMessage({
-            role: 'assistant',
-            content: t('child.results_passed'),
-            type: 'text'
-          }));
-          
-          setTimeout(() => {
-            dispatch(clearLearningState());
-            dispatch(logout());
-          }, 5000);
-        }, 2000);
+          dispatch(clearLearningState());
+          dispatch(logout());
+        }, 5000);
       } else {
         throw new Error('Failed to end session');
       }
     } catch (error) {
-      dispatch(addMessage({
-        role: 'assistant',
-        content: t('child.error_ending'),
-        type: 'text'
-      }));
-      dispatch(setLoading(false));
+      // Keep UI minimal; rely on existing error handling state if needed.
     }
   };
 
@@ -195,7 +151,7 @@ const ChatContainer: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3 glass rounded-2xl px-4 py-2 border border-indigo-200">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
             <span className="text-sm font-bold text-slate-700">{t('child.ai_active')}</span>
           </div>
         </motion.header>
@@ -284,7 +240,7 @@ const ChatContainer: React.FC = () => {
 
             {/* Creative Input Area */}
             <div className="p-6 bg-gradient-to-r from-indigo-50 via-purple-50 to-pink-50 border-t-2 border-indigo-100 space-y-4">
-              {conversationPhase === "greeting" && (
+              {conversationPhase === "greeting" && !quiz.active && !quiz.completed && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9, y: 10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -312,7 +268,7 @@ const ChatContainer: React.FC = () => {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
+                  className="bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16" />
                   <div className="relative z-10">
@@ -337,19 +293,17 @@ const ChatContainer: React.FC = () => {
                     </div>
                     <p className="text-lg font-semibold mb-4">{quiz.question}</p>
                     <div className="flex gap-3">
-                      <input
-                        type="text"
+                      <textarea
                         value={quizAnswer}
                         onChange={(e) => setQuizAnswer(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSubmitQuizAnswer()}
                         placeholder={t('child.type_answer')}
                         disabled={isLoading}
-                        className="flex-1 h-12 px-4 rounded-xl bg-white/90 border-2 border-white text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-white disabled:opacity-50 font-semibold"
+                        className="flex-1 min-h-[48px] max-h-[140px] resize-none px-4 py-3 rounded-xl bg-white/90 border-2 border-white text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-white disabled:opacity-50 font-semibold leading-relaxed"
                       />
                       <button
                         onClick={handleSubmitQuizAnswer}
                         disabled={!quizAnswer.trim() || isLoading}
-                        className="px-6 h-12 bg-white text-blue-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-6 h-12 bg-white text-indigo-700 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t('common.submit')}
                       </button>
@@ -364,7 +318,7 @@ const ChatContainer: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
+                className="bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20" />
                 <div className="relative z-10">
@@ -383,7 +337,7 @@ const ChatContainer: React.FC = () => {
                       <button
                         onClick={handleStartQuiz}
                         disabled={isLoading}
-                        className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
+                        className="flex-1 h-12 bg-white text-indigo-700 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
                       >
                         {t('child.another_quiz')}
                       </button>
@@ -391,7 +345,7 @@ const ChatContainer: React.FC = () => {
                     <button
                       onClick={handleEndSession}
                       disabled={isLoading || isEnding}
-                      className="flex-1 h-12 bg-emerald-600 text-white rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30"
+                      className="flex-1 h-12 bg-white/20 hover:bg-white/25 border border-white/30 backdrop-blur-sm text-white rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
                     >
                       {t('common.finish')}
                     </button>
@@ -407,10 +361,10 @@ const ChatContainer: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className={`rounded-3xl p-6 text-white shadow-lg space-y-4 relative overflow-hidden ${
                   understandingState === 'understood'
-                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                    ? 'bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500'
                     : understandingState === 'partial'
                     ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                    : 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                    : 'bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500'
                 }`}
               >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16" />
@@ -445,7 +399,7 @@ const ChatContainer: React.FC = () => {
                       <button
                         onClick={handleStartQuiz}
                         disabled={isLoading}
-                        className="flex-1 h-12 bg-white text-emerald-600 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
+                        className="flex-1 h-12 bg-white text-indigo-700 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50"
                       >
                         {t('child.practice_quiz')}
                       </button>
@@ -455,10 +409,10 @@ const ChatContainer: React.FC = () => {
                       disabled={isLoading}
                       className={`flex-1 h-12 rounded-xl font-black hover:scale-105 transition-transform shadow-lg disabled:opacity-50 border-2 border-white/30 ${
                         understandingState === 'understood'
-                          ? 'bg-emerald-600 text-white'
+                          ? 'bg-violet-600 text-white'
                           : understandingState === 'partial'
                           ? 'bg-amber-600 text-white'
-                          : 'bg-blue-600 text-white'
+                          : 'bg-indigo-600 text-white'
                       }`}
                     >
                       {t('child.end_session')}
@@ -472,7 +426,7 @@ const ChatContainer: React.FC = () => {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-4 text-white text-center font-bold flex items-center justify-center gap-3 shadow-lg"
+                className="bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 rounded-3xl p-4 text-white text-center font-bold flex items-center justify-center gap-3 shadow-lg"
               >
                 <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
                 <span>{t('child.creating_summary')}...</span>
@@ -495,14 +449,12 @@ const ChatContainer: React.FC = () => {
                     {isRecording ? <Square size={24} fill="currentColor" /> : <Mic size={24} />}
                   </motion.button>
                   <div className="flex-1 relative">
-                    <input
-                      type="text"
+                    <textarea
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSend()}
                       placeholder={isRecording ? t('child.recording') : t('child.type_message')}
                       disabled={isRecording || isLoading || isEnding}
-                      className="w-full h-14 pl-6 pr-16 rounded-2xl border-2 border-indigo-200 focus:border-indigo-500 outline-none text-base font-semibold transition-all shadow-lg bg-white disabled:opacity-50 placeholder:text-slate-400"
+                      className="w-full min-h-[56px] max-h-[160px] resize-none pl-6 pr-16 py-4 rounded-2xl border-2 border-indigo-200 focus:border-indigo-500 outline-none text-base font-semibold transition-all shadow-lg bg-white disabled:opacity-50 placeholder:text-slate-400 leading-relaxed"
                     />
                     <motion.button
                       whileHover={{ scale: 1.1 }}
@@ -533,6 +485,42 @@ const ChatContainer: React.FC = () => {
                 </h4>
               </div>
               <ProgressGauge state={understandingState} />
+            </motion.div>
+
+            {/* Always-available Actions */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.05 }}
+              className="bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+              <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full -mr-12 -mt-12" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/25">
+                    <CheckCircle size={18} className="text-white" />
+                  </div>
+                  <h4 className="text-sm font-black uppercase tracking-wider">{t('child.actions')}</h4>
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    onClick={handleStartQuiz}
+                    disabled={isLoading || isEnding || quiz.active}
+                    className="w-full h-12 rounded-2xl font-black shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-white text-indigo-700 hover:bg-white/90"
+                  >
+                    {t('child.practice_quiz')}
+                  </button>
+                  <button
+                    onClick={handleEndSession}
+                    disabled={isEnding}
+                    className="w-full h-12 rounded-2xl font-black shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-white/20 hover:bg-white/25 border border-white/30 backdrop-blur-sm"
+                  >
+                    {t('child.end_session')}
+                  </button>
+                </div>
+              </div>
             </motion.div>
 
             <motion.div

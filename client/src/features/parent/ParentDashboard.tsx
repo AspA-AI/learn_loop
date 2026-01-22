@@ -326,7 +326,7 @@ const FormalReports: React.FC = () => {
                   <div className="flex items-center gap-3 mt-3 opacity-80">
                     <div className="flex -space-x-1">
                       {Object.values(report.metrics_summary || {}).map((val: any, i) => (
-                        <div key={i} className={`w-2 h-2 rounded-full ${val >= 8 ? 'bg-emerald-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
+                        <div key={i} className={`w-2 h-2 rounded-full ${val >= 8 ? 'bg-violet-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
                       ))}
                     </div>
                     <span className="text-[10px] font-bold">
@@ -414,19 +414,19 @@ const FormalReports: React.FC = () => {
                         <MetricBar 
                           label={t('parent.conceptual_accuracy')} 
                           value={selectedReport.metrics_summary?.accuracy || 0} 
-                          color="bg-emerald-500" 
+                          color="bg-violet-500" 
                           definition={METRIC_DEFINITIONS.accuracy}
                         />
                         <MetricBar 
                           label={t('parent.cognitive_confidence')} 
                           value={selectedReport.metrics_summary?.confidence || 0} 
-                          color="bg-blue-500" 
+                          color="bg-indigo-500" 
                           definition={METRIC_DEFINITIONS.confidence}
                         />
                         <MetricBar 
                           label={t('parent.engagement_persistence')} 
                           value={selectedReport.metrics_summary?.persistence || 0} 
-                          color="bg-purple-500" 
+                          color="bg-fuchsia-500" 
                           definition={METRIC_DEFINITIONS.persistence}
                         />
                         <MetricBar 
@@ -1148,7 +1148,7 @@ const ChildrenManagement: React.FC = () => {
                       <Key size={14} /> 
                       <span className="font-mono">{profile.learningCode}</span>
                       {copiedCode === profile.id ? (
-                        <Check size={14} className="text-emerald-600" />
+                        <Check size={14} className="text-violet-600" />
                       ) : (
                         <Copy size={14} className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                       )}
@@ -1778,15 +1778,15 @@ const ChildrenManagement: React.FC = () => {
                                         <div className="flex items-center gap-3 mb-2">
                                           <span className={`px-3 py-1 rounded-lg text-xs font-bold ${
                                             session.status === 'completed' 
-                                              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
-                                              : 'bg-blue-100 text-blue-700 border border-blue-200'
+                                              ? 'bg-violet-100 text-violet-700 border border-violet-200' 
+                                              : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
                                           }`}>
                                             {session.status === 'completed' ? 'Completed' : 'Active'}
                                           </span>
                                           {session.metrics && (
                                             <div className="flex gap-1">
                                               {Object.values(session.metrics).map((val: any, i) => (
-                                                <div key={i} className={`w-1.5 h-1.5 rounded-full ${val >= 8 ? 'bg-emerald-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
+                                                <div key={i} className={`w-1.5 h-1.5 rounded-full ${val >= 8 ? 'bg-violet-400' : val >= 5 ? 'bg-amber-400' : 'bg-rose-400'}`} />
                                               ))}
                                             </div>
                                           )}
@@ -1923,9 +1923,9 @@ const ChildrenManagement: React.FC = () => {
                           const masteryLevel = report?.concept_mastery_level || 'beginner';
                           const masteryColors: Record<string, string> = {
                             beginner: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-                            developing: 'bg-blue-100 text-blue-800 border-blue-200',
-                            proficient: 'bg-green-100 text-green-800 border-green-200',
-                            mastered: 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            developing: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+                            proficient: 'bg-purple-100 text-purple-800 border-purple-200',
+                            mastered: 'bg-violet-100 text-violet-800 border-violet-200'
                           };
 
                           return (
@@ -1966,14 +1966,14 @@ const ChildrenManagement: React.FC = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {report?.achievements && report.achievements.length > 0 && (
                                   <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-emerald-600">
+                                    <div className="flex items-center gap-2 text-violet-600">
                                       <CheckCircle size={14} />
                                       <h6 className="text-xs font-bold uppercase tracking-wider">{t('parent.achievements')}</h6>
                                     </div>
                                     <ul className="space-y-1">
                                       {report.achievements.map((achievement: string, i: number) => (
                                         <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
-                                          <span className="text-emerald-600 mt-1">•</span>
+                                          <span className="text-violet-600 mt-1">•</span>
                                           <span>{achievement}</span>
                                         </li>
                                       ))}
@@ -2272,9 +2272,9 @@ const CurriculumExplorer: React.FC = () => {
                     })}
                   </div>
                   {selectedFile && assignedChildIds.some(id => getChildrenWithCurriculum().has(id)) && (
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-2">
-                      <AlertCircle size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-blue-700 font-semibold">
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-start gap-2">
+                      <AlertCircle size={14} className="text-indigo-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-indigo-700 font-semibold">
                         {t('parent.replace_warning')}
                       </p>
                     </div>

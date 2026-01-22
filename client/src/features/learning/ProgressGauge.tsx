@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 interface ProgressGaugeProps {
-  state: 'understood' | 'partial' | 'confused' | null;
+  state: 'understood' | 'partial' | 'confused' | 'procedural' | null;
 }
 
 const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
@@ -21,7 +21,7 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
     switch (state) {
       case 'confused': return '#ef4444'; // red-500
       case 'partial': return '#f59e0b'; // amber-500
-      case 'understood': return '#10b981'; // emerald-500
+      case 'understood': return '#8b5cf6'; // violet-500
       default: return '#e2e8f0'; // slate-200
     }
   };
@@ -54,7 +54,7 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({ state }) => {
       <div className="grid grid-cols-3 gap-2 mt-6">
         <div className={`h-1 rounded-full ${state === 'confused' ? 'bg-red-500' : 'bg-border'}`} />
         <div className={`h-1 rounded-full ${state === 'partial' ? 'bg-amber-500' : 'bg-border'}`} />
-        <div className={`h-1 rounded-full ${state === 'understood' ? 'bg-emerald-500' : 'bg-border'}`} />
+        <div className={`h-1 rounded-full ${state === 'understood' ? 'bg-violet-500' : 'bg-border'}`} />
       </div>
     </div>
   );

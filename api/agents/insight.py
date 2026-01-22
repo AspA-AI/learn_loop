@@ -13,6 +13,14 @@ class InsightAgent:
         self.system_prompt = (
             "You are a supportive educational consultant for parents. "
             "Your job is to summarize a child's learning session into actionable insights.\n\n"
+            "CRITICAL EVIDENCE RULES (do not violate):\n"
+            "- Only state what is supported by the transcript/session data.\n"
+            "- Do NOT assume the child 'enjoyed' the story, was 'engaged', or 'participated actively' unless the child explicitly expresses it.\n"
+            "- If the session is short or ends early, you MUST be cautious and say evidence is limited.\n"
+            "- Prefer neutral, observable statements like: 'was introduced to...', 'attempted one question...', 'answered incorrectly...', 'ended early'.\n\n"
+            "DEFINITION OF 'ACHIEVEMENTS' (important):\n"
+            "- Achievements must reflect what the CHILD demonstrated (e.g., correct answers, clear explanations, persistence), NOT what the AI presented.\n"
+            "- If the child did not provide enough substantive responses to demonstrate learning (early end / no answers), then achievements MUST be an empty array [].\n\n"
             "IMPORTANT: If this is a mathematical concept, analyze the conversation to identify:\n"
             "1. Story/Conceptual Understanding: Did the child answer story-based questions well? (e.g., 'If you have 8 cookies and eat 2, how many left?')\n"
             "2. Mathematical Operation Understanding: Did the child answer math notation questions well? (e.g., 'Can you solve 8 - 2 = ?')\n"
@@ -61,7 +69,7 @@ class InsightAgent:
         # Validate and set each field
         normalized["summary"] = str(report.get("summary", "")).strip()
         if not normalized["summary"]:
-            normalized["summary"] = "The child engaged with the learning session."
+            normalized["summary"] = "A learning session was recorded."
         
         # Ensure arrays exist and are lists
         normalized["achievements"] = list(report.get("achievements", [])) if isinstance(report.get("achievements"), list) else []
@@ -88,9 +96,36 @@ class InsightAgent:
             }
 
         try:
+            # Compute lightweight evidence signals to discourage overconfident claims on short sessions
+            # sessions_data is a list, but in our usage it's typically a single session snapshot.
+            interactions: List[Dict[str, Any]] = []
+            try:
+                interactions = (sessions_data[0] or {}).get("interactions", []) if sessions_data else []
+            except Exception:
+                interactions = []
+
+            user_texts = []
+            for i in interactions:
+                if i.get("role") == "user" and i.get("content") is not None:
+                    user_texts.append(str(i.get("content")).strip())
+
+            procedural = {"ready", "ok", "okay", "yes", "yep", "yeah", "sure", "start", "let's go", "lets go"}
+            substantive_user = [
+                u for u in user_texts
+                if u and u.lower() not in procedural and len(u) > 1
+            ]
+            limited_evidence = len(substantive_user) < 2
+
             user_prompt = (
                 f"Analyze the following learning session data and provide a standardized evaluation report:\n\n"
                 f"{json.dumps(sessions_data, indent=2)}\n\n"
+                f"EVIDENCE SIGNALS:\n"
+                f"- total_user_messages: {len(user_texts)}\n"
+                f"- substantive_user_messages: {len(substantive_user)}\n"
+                f"- limited_evidence: {limited_evidence}\n\n"
+                f"If limited_evidence is true, you MUST avoid claims about enjoyment/engagement/active participation. "
+                f"In that case, achievements MUST be an empty array []. "
+                f"Also include in key_insights that evidence is limited because the session ended early.\n\n"
                 f"Remember to follow the EXACT JSON structure specified in the system prompt. "
                 f"All fields must be present: summary, achievements, challenges, recommended_next_steps, key_insights, concept_mastery_level."
             )
@@ -108,7 +143,20 @@ class InsightAgent:
             
             parsed_report = json.loads(response_text)
             # Validate and normalize to ensure consistent structure
-            return self._validate_and_normalize_report(parsed_report)
+            normalized = self._validate_and_normalize_report(parsed_report)
+
+            # Enforce achievement semantics: achievements are what the child demonstrated.
+            # If limited evidence, force achievements to be empty.
+            if limited_evidence:
+                normalized["achievements"] = []
+                # Encourage a conservative mastery level in early-ended sessions
+                if normalized.get("concept_mastery_level") in ["proficient", "mastered"]:
+                    normalized["concept_mastery_level"] = "beginner"
+                # Ensure the report notes limited evidence somewhere
+                if not any("limited" in str(x).lower() for x in (normalized.get("key_insights") or [])):
+                    normalized["key_insights"] = ["Limited evidence due to early session end."] + (normalized.get("key_insights") or [])
+
+            return normalized
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to decode JSON from insight agent: {e}. Content: {response_text}")

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class ExplainerAgent:
     def __init__(self):
         self.role_description = (
-            "You are a world-class educator specialized in child development for ages 6-10. "
+            "You are a world-class educator specialized in child development for all ages"
             "Your goal is to explain academic concepts using age-appropriate framing and analogies."
         )
         
@@ -269,12 +269,12 @@ class ExplainerAgent:
         """
         system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
-        # Unified prompt - LLM will automatically determine the appropriate quiz format
+        # Unified prompt - exam-style quiz formatting (age-appropriate, but no story wrapper)
         user_prompt = (
-            f"Now give {child_name} (a {age_level}-year-old) a simple question or problem about '{concept}' using the academic format we just learned. "
-            f"The question should test their understanding of '{concept}' using the proper academic notation, terminology, rules, or structure appropriate for '{concept}'. "
-            f"Adapt the difficulty to what a {age_level}-year-old would be able to solve or answer. "
-            f"Keep it friendly and encouraging. This helps us see if they understand the academic way of expressing '{concept}'. "
+            f"Create ONE exam-style question about '{concept}' for a {age_level}-year-old student. "
+            f"It must look like a real school question for this age (grade-appropriate), using correct academic language and formatting. "
+            f"Do NOT use stories, roleplay, emojis, or fantasy framing. "
+            f"Do NOT add encouragement or commentary—output ONLY the question text. "
             f"Remember: The question MUST be about '{concept}' only. Do not introduce other topics or related concepts."
         )
         
@@ -379,16 +379,16 @@ class ExplainerAgent:
         system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
         user_prompt = (
-            f"Generate {num_questions} practice questions about '{concept}' for a {age_level}-year-old child named {child_name}. "
-            f"The questions should:\n"
-            f"- Test understanding of '{concept}' at an age-appropriate level\n"
-            f"- Mix story-based and academic format questions\n"
-            f"- Be progressively challenging but achievable for a {age_level}-year-old\n"
-            f"- Cover different aspects of '{concept}'\n"
-            f"- Be clear and engaging\n\n"
-            f"Return ONLY a JSON array of question strings, nothing else. "
-            f"Example format: [\"Question 1\", \"Question 2\", \"Question 3\", ...]\n"
-            f"Remember: All questions MUST be about '{concept}' only. Do not introduce other topics."
+            f"Generate {num_questions} exam-style questions about '{concept}' for a {age_level}-year-old student named {child_name}. "
+            f"Requirements:\n"
+            f"- Each question must look like a real school exam question for this age (grade-appropriate).\n"
+            f"- Use correct academic language and formatting.\n"
+            f"- Do NOT use stories, roleplay, emojis, or fantasy framing.\n"
+            f"- Do NOT add encouragement or commentary; output questions only.\n"
+            f"- Keep questions clear and unambiguous.\n"
+            f"- Progress from easier to harder.\n"
+            f"- All questions MUST be about '{concept}' only.\n\n"
+            f"Return ONLY a JSON object with this format: {{\"questions\": [\"...\", \"...\", ...]}}"
         )
         
         messages = [

@@ -492,6 +492,11 @@ async def end_session(session_id: str):
             metrics=academic_report.get("metrics"),
             academic_summary=academic_report.get("summary")
         )
+
+        # Clean up any active quiz state for this session (if the child ended during a quiz)
+        if session_id in quiz_states:
+            del quiz_states[session_id]
+            logger.info(f"🧹 [SESSION END] Cleared quiz state for session {session_id}")
         
         # 7. Clean up session context from memory
         if session_id in session_contexts:
@@ -552,9 +557,9 @@ async def start_quiz(session_id: str, num_questions: int = Query(5, ge=3, le=10)
             "started_at": datetime.now(timezone.utc).isoformat()
         }
         
-        # 4. Save quiz start message and first question to chat
+        # 4. Save quiz start message and first question to chat (exam-style, no story wrapper)
         first_question_text = questions[0]
-        quiz_start_message = f"Great! Let's practice with {len(questions)} questions about {session['concept']}.\n\n**Question 1 of {len(questions)}:**\n{first_question_text}"
+        quiz_start_message = f"Quiz started: {session['concept']}.\nQuestion 1 of {len(questions)}:\n{first_question_text}"
         supabase_service.add_interaction(
             session_id,
             "assistant",

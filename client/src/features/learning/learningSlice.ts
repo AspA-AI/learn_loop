@@ -287,15 +287,6 @@ const learningSlice = createSlice({
         state.quiz.completed = false;
         state.quiz.answers = [];
         state.quiz.scores = [];
-        
-        // Add quiz start message
-        if (action.payload.message) {
-          state.messages.push({
-            role: 'assistant',
-            content: action.payload.message,
-            type: 'text',
-          });
-        }
       })
       .addCase(startQuiz.rejected, (state, action) => {
         state.isLoading = false;

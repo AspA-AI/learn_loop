@@ -302,7 +302,7 @@ const ParentAdvisorWidget: React.FC = () => {
             <div className="flex-1 flex flex-col bg-gradient-to-br from-white/50 to-indigo-50/30">
               {noteToast && (
                 <div className="px-4 pt-3">
-                  <div className="text-xs bg-emerald-600 text-white rounded-xl px-3 py-2 shadow">
+                  <div className="text-xs bg-violet-600 text-white rounded-xl px-3 py-2 shadow">
                     {noteToast}
                   </div>
                 </div>

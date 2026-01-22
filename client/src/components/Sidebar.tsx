@@ -99,7 +99,7 @@ const Sidebar: React.FC = () => {
         <div className="p-3 bg-white/5 rounded-xl">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">{t('common.status')}</span>
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
           </div>
           <p className="text-[10px] text-white/50 font-medium leading-relaxed">
             {t('common.ai_system_active')}
