@@ -1,9 +1,25 @@
 import logging
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form, Query
-from models.schemas import ChildProfile, ChildCreate, ChildUpdate, ParentInsight, ChildTopic, TopicCreate, ParentProfile
+from models.schemas import (
+    ChildProfile,
+    ChildCreate,
+    ChildUpdate,
+    ParentInsight,
+    ChildTopic,
+    TopicCreate,
+    ParentProfile,
+    AdvisorChatStartRequest,
+    AdvisorChatStartResponse,
+    AdvisorChatMessageRequest,
+    AdvisorChatMessageResponse,
+    AdvisorChatFocusUpdateRequest,
+    AdvisorChatFocusUpdateResponse,
+)
 from services.supabase_service import supabase_service
 from services.weaviate_service import weaviate_service
+from services.openai_service import openai_service
 from agents.insight import insight_agent
+from agents.advisor import advisor_agent, parent_guidance_summarizer
 from utils.document_processor import process_document
 from routes.auth import get_current_parent
 from typing import List, Optional, Dict, Any
@@ -783,3 +799,525 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
     except Exception as e:
         logger.error(f"Error generating insights: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate insights.")
+
+
+# --- Parent Advisor Chat ---
+
+def _build_focus_session_context(session_id: str, child_id: str) -> str:
+    """Build a bounded context string for a focus session (transcript + evaluation)."""
+    try:
+        session = supabase_service.get_session(session_id)
+        if not session or str(session.get("child_id")) != str(child_id):
+            return "(selected session not found for this child)"
+
+        interactions = supabase_service.get_interactions(session_id)
+        # Cap transcript to avoid runaway tokens
+        transcript_lines: List[str] = []
+        for i in interactions[-80:]:
+            role = i.get("role", "user")
+            content = (i.get("content") or "").strip()
+            if not content:
+                continue
+            transcript_lines.append(f"{role}: {content}")
+        transcript = "\n".join(transcript_lines)
+        if len(transcript) > 12000:
+            transcript = transcript[-12000:]
+
+        evaluation = session.get("evaluation_report")
+        metrics = session.get("metrics")
+        academic_summary = session.get("academic_summary")
+
+        return (
+            f"Session ID: {session_id}\n"
+            f"Concept: {session.get('concept')}\n"
+            f"Status: {session.get('status')}\n"
+            f"Created at: {session.get('created_at')}\n"
+            f"Ended at: {session.get('ended_at')}\n\n"
+            f"Academic summary (3 sentences): {academic_summary}\n\n"
+            f"Metrics: {metrics}\n\n"
+            f"Evaluation report JSON: {evaluation}\n\n"
+            f"Transcript (most recent first bounded):\n{transcript}\n"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to build focus session context: {e}")
+        return "(failed to load selected session context)"
+
+def _build_child_overall_progress_context(child_id: str) -> str:
+    """
+    Bounded "overall progress" snapshot for the advisor agent.
+    Uses the same underlying stored data we use for reports: sessions.metrics + sessions.academic_summary,
+    and optionally the latest formal report.
+    """
+    try:
+        if not supabase_service.client:
+            return "(database unavailable)"
+
+        # 1) Recent completed sessions with metrics + academic_summary
+        sessions_resp = supabase_service.client.table("sessions") \
+            .select("id, concept, created_at, ended_at, metrics, academic_summary") \
+            .eq("child_id", str(child_id)) \
+            .eq("status", "completed") \
+            .order("created_at", desc=True) \
+            .limit(8) \
+            .execute()
+
+        sessions = sessions_resp.data or []
+
+        # Compute simple averages if metrics exist
+        acc = conf = pers = expr = 0.0
+        metric_count = 0
+        session_lines: List[str] = []
+        for s in sessions:
+            metrics = s.get("metrics") or {}
+            summary = (s.get("academic_summary") or "").strip()
+            concept = s.get("concept")
+            created_at = s.get("created_at")
+
+            if isinstance(metrics, str):
+                try:
+                    metrics = json.loads(metrics)
+                except Exception:
+                    metrics = {}
+
+            if isinstance(metrics, dict) and metrics:
+                try:
+                    acc += float(metrics.get("accuracy", 0) or 0)
+                    conf += float(metrics.get("confidence", 0) or 0)
+                    pers += float(metrics.get("persistence", 0) or 0)
+                    expr += float(metrics.get("expression", 0) or 0)
+                    metric_count += 1
+                except Exception:
+                    pass
+
+            # Keep each line short and bounded
+            if summary and len(summary) > 260:
+                summary = summary[:260] + "…"
+            session_lines.append(f"- {concept} ({created_at}): {summary or '(no academic summary saved)'} | metrics={metrics or '(none)'}")
+
+        avg_block = "(no metrics yet)"
+        if metric_count > 0:
+            avg_block = {
+                "accuracy_avg": round(acc / metric_count, 2),
+                "confidence_avg": round(conf / metric_count, 2),
+                "persistence_avg": round(pers / metric_count, 2),
+                "expression_avg": round(expr / metric_count, 2),
+                "sessions_counted": metric_count,
+            }
+
+        # 2) Latest formal report snapshot (optional, keep very small)
+        latest_report_line = "(no formal reports yet)"
+        try:
+            reports = supabase_service.get_formal_reports(str(child_id)) or []
+            if reports:
+                r0 = reports[0]
+                latest_report_line = f"Latest formal report: type={r0.get('report_type')} range={r0.get('start_date')}→{r0.get('end_date')} metrics_summary={r0.get('metrics_summary')}"
+        except Exception:
+            pass
+
+        return (
+            f"Recent completed sessions (max 8):\n" + ("\n".join(session_lines) if session_lines else "(none)") + "\n\n"
+            f"Averaged metrics across recent sessions: {avg_block}\n\n"
+            f"{latest_report_line}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to build overall child progress context: {e}")
+        return "(failed to load overall progress context)"
+
+async def _detect_child_scope_mismatch(
+    parent_message: str,
+    selected_child_name: str,
+    other_child_names: List[str],
+    language: str = "English",
+) -> Dict[str, Any]:
+    """
+    LLM-based guard to detect if the parent is discussing a different child than the selected one.
+    Returns JSON: { scope: "selected"|"other"|"multiple"|"unclear", mentioned_children: [..], confidence: 0..1 }
+    """
+    # If there's only one child, there is no mismatch to detect.
+    if not other_child_names:
+        return {"scope": "selected", "mentioned_children": [], "confidence": 1.0}
+
+    system = (
+        "You are a strict classifier.\n"
+        "Task: Determine whether the parent's message is about the currently selected child, a different child, multiple children, or unclear.\n"
+        "Output MUST be valid JSON with keys: scope, mentioned_children, confidence.\n"
+        "scope must be one of: selected, other, multiple, unclear.\n"
+        "mentioned_children must be an array of names taken ONLY from the provided children list.\n"
+        "confidence must be a number 0 to 1.\n"
+        "Important:\n"
+        "- Parents may refer indirectly (e.g., 'my other child', 'my daughter', 'the older one'). If it's clearly not the selected child, choose 'other'.\n"
+        "- If the parent asks generally about 'my kids' or compares children, choose 'multiple'.\n"
+        "- If the message is ambiguous (e.g., 'my child', 'my kid', 'my progress') and does NOT clearly reference another child, assume it refers to the selected child.\n"
+        "- If you cannot tell AND there's no strong evidence it's about a different child, choose 'selected' (default to selected child to avoid unnecessary blocking).\n"
+        "Do not include any extra keys.\n"
+    )
+
+    children_list = [selected_child_name] + other_child_names
+    user = (
+        f"Language: {language}\n"
+        f"Selected child: {selected_child_name}\n"
+        f"All children names: {children_list}\n\n"
+        f"Parent message:\n{parent_message}\n"
+    )
+
+    try:
+        txt = await openai_service.get_chat_completion(
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            max_tokens=150,
+            response_format={"type": "json_object"},
+        )
+        obj = json.loads(txt or "{}")
+        scope = obj.get("scope", "unclear")
+        mentioned = obj.get("mentioned_children", [])
+        conf = obj.get("confidence", 0.0)
+        if scope not in {"selected", "other", "multiple", "unclear"}:
+            scope = "selected"
+        if not isinstance(mentioned, list):
+            mentioned = []
+        mentioned = [m for m in mentioned if isinstance(m, str) and m in children_list]
+        try:
+            conf = float(conf)
+        except Exception:
+            conf = 0.0
+        conf = max(0.0, min(1.0, conf))
+        return {"scope": scope, "mentioned_children": mentioned, "confidence": conf}
+    except Exception:
+        # Fail open (don't block) if classifier fails
+        return {"scope": "selected", "mentioned_children": [], "confidence": 0.0}
+
+async def _detect_session_scope(
+    parent_message: str,
+    selected_focus_session_label: Optional[str],
+    available_session_labels: List[str],
+) -> Dict[str, Any]:
+    """
+    LLM-based helper that detects whether the parent is asking about a specific past session.
+    - If no focus is selected and the message appears session-specific -> intent="needs_selection"
+    - If focus is selected but message appears to refer to a different session -> intent="different_session"
+    - Else -> intent="ok"
+    Output JSON: { intent: "ok"|"needs_selection"|"different_session"|"unclear", confidence: 0..1 }
+    """
+    system = (
+        "You are a strict classifier.\n"
+        "Task: Determine whether the parent message is about a specific session (by date/time/that previous chat),\n"
+        "and whether it matches the currently selected focus session.\n"
+        "Output MUST be valid JSON with keys: intent, confidence.\n"
+        "intent must be one of: ok, needs_selection, different_session, unclear.\n"
+        "confidence must be a number 0 to 1.\n"
+        "Rules:\n"
+        "- If the parent says 'in that session', 'on that day', 'the session on Jan ...', or references a past conversation, it's session-specific.\n"
+        "- If no focus session is selected and it's session-specific -> needs_selection.\n"
+        "- If a focus session is selected and the message indicates a different session than the selected label -> different_session.\n"
+        "- If the message is general progress ('my kid's progress') -> ok.\n"
+        "Do not include any extra keys.\n"
+    )
+
+    user = (
+        f"Selected focus session label (or null): {selected_focus_session_label}\n"
+        f"Available session labels (for reference): {available_session_labels}\n\n"
+        f"Parent message:\n{parent_message}\n"
+    )
+
+    try:
+        txt = await openai_service.get_chat_completion(
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.0,
+            max_tokens=120,
+            response_format={"type": "json_object"},
+        )
+        obj = json.loads(txt or "{}")
+        intent = obj.get("intent", "unclear")
+        conf = obj.get("confidence", 0.0)
+        if intent not in {"ok", "needs_selection", "different_session", "unclear"}:
+            intent = "unclear"
+        try:
+            conf = float(conf)
+        except Exception:
+            conf = 0.0
+        conf = max(0.0, min(1.0, conf))
+        return {"intent": intent, "confidence": conf}
+    except Exception:
+        return {"intent": "ok", "confidence": 0.0}
+
+
+@router.post("/advisor/start", response_model=AdvisorChatStartResponse)
+async def start_advisor_chat(request: AdvisorChatStartRequest, current_parent: dict = Depends(get_current_parent)):
+    """Start a new per-child advisor chat. Optionally bind it to a focus session."""
+    try:
+        parent_id = str(current_parent["id"])
+        child = verify_child_ownership(str(request.child_id), parent_id)
+
+        chat = supabase_service.create_parent_advisor_chat(
+            parent_id=parent_id,
+            child_id=str(request.child_id),
+            focus_session_id=str(request.focus_session_id) if request.focus_session_id else None,
+        )
+
+        # Seed with a short assistant greeting message (stored + returned)
+        greeting = (
+            f"Hi! I’m your Advisor Agent for {child.get('name','your child')}. "
+            "What would you like to discuss about your child today?"
+        )
+        supabase_service.add_parent_advisor_message(str(chat["id"]), "assistant", greeting)
+
+        messages = supabase_service.get_parent_advisor_messages(str(chat["id"]), limit=50)
+        return AdvisorChatStartResponse(
+            chat_id=UUID(str(chat["id"])),
+            child_id=UUID(str(request.child_id)),
+            focus_session_id=UUID(str(request.focus_session_id)) if request.focus_session_id else None,
+            messages=messages,
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        # e.g. missing table due to migrations not run
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error starting advisor chat: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to start advisor chat.")
+
+
+@router.get("/advisor/{chat_id}")
+async def get_advisor_chat(chat_id: UUID, current_parent: dict = Depends(get_current_parent)):
+    """Fetch advisor chat history (scoped to current parent)."""
+    try:
+        parent_id = str(current_parent["id"])
+        chat = supabase_service.get_parent_advisor_chat(str(chat_id), parent_id=parent_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        messages = supabase_service.get_parent_advisor_messages(str(chat_id), limit=80)
+        return {"chat": chat, "messages": messages}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching advisor chat: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch advisor chat.")
+
+@router.patch("/advisor/{chat_id}/focus", response_model=AdvisorChatFocusUpdateResponse)
+async def update_advisor_chat_focus(chat_id: UUID, request: AdvisorChatFocusUpdateRequest, current_parent: dict = Depends(get_current_parent)):
+    """
+    Update the focus session for an existing advisor chat (same child, same chat).
+    This keeps chat continuity while allowing the agent to use the newly selected session as context.
+    """
+    try:
+        parent_id = str(current_parent["id"])
+        chat = supabase_service.get_parent_advisor_chat(str(chat_id), parent_id=parent_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        # Verify the chat's child belongs to this parent
+        verify_child_ownership(str(chat["child_id"]), parent_id)
+
+        updated = supabase_service.update_parent_advisor_chat_focus(
+            chat_id=str(chat_id),
+            parent_id=parent_id,
+            focus_session_id=str(request.focus_session_id) if request.focus_session_id else None,
+        )
+
+        return AdvisorChatFocusUpdateResponse(
+            chat_id=UUID(str(updated["id"])),
+            focus_session_id=UUID(str(updated["focus_session_id"])) if updated.get("focus_session_id") else None,
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating advisor chat focus: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update chat focus.")
+
+
+@router.post("/advisor/{chat_id}/message", response_model=AdvisorChatMessageResponse)
+async def send_advisor_message(chat_id: UUID, request: AdvisorChatMessageRequest, current_parent: dict = Depends(get_current_parent)):
+    """Send a message to the advisor agent within an existing per-child chat."""
+    try:
+        parent_id = str(current_parent["id"])
+        chat = supabase_service.get_parent_advisor_chat(str(chat_id), parent_id=parent_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        # Verify child ownership (chat is per-child)
+        child = verify_child_ownership(str(chat["child_id"]), parent_id)
+
+        language = current_parent.get("preferred_language", "English")
+
+        # Persist parent message
+        supabase_service.add_parent_advisor_message(str(chat_id), "user", request.message)
+
+        # Load history (bounded)
+        db_messages = supabase_service.get_parent_advisor_messages(str(chat_id), limit=80)
+        chat_history = [{"role": m["role"], "content": m["content"]} for m in db_messages if m.get("role") and m.get("content")]
+
+        # --- Child-scope guard (LLM-based) ---
+        # If parent appears to be talking about a different child, do not continue the conversation in the wrong scope.
+        other_child_names: List[str] = []
+        try:
+            if supabase_service.client:
+                children_resp = supabase_service.client.table("children").select("id, name").eq("parent_id", parent_id).execute()
+                for c in (children_resp.data or []):
+                    if str(c.get("id")) != str(child.get("id")) and c.get("name"):
+                        other_child_names.append(str(c.get("name")))
+        except Exception:
+            other_child_names = []
+
+        scope_check = await _detect_child_scope_mismatch(
+            parent_message=request.message,
+            selected_child_name=child.get("name", "this child"),
+            other_child_names=other_child_names,
+            language=language,
+        )
+
+        # Only block if the classifier is confident. Otherwise, proceed in selected-child context.
+        scope = scope_check.get("scope")
+        confidence = float(scope_check.get("confidence") or 0.0)
+        if scope in {"other", "multiple"} and confidence >= 0.75:
+            selected_name = child.get("name", "this child")
+            mentioned = scope_check.get("mentioned_children") or []
+            target = mentioned[0] if mentioned else "your other child"
+            warning = (
+                f"This chat is currently about {selected_name}. "
+                f"If you want to discuss {target}, please select them from the left sidebar so I can switch context."
+            )
+            # Persist assistant warning and return without calling AdvisorAgent or summarizer
+            supabase_service.add_parent_advisor_message(str(chat_id), "assistant", warning)
+            return AdvisorChatMessageResponse(
+                chat_id=UUID(str(chat_id)),
+                assistant_message=warning,
+                appended_notes=[],
+            )
+
+        # Guidance notes (bounded newest-first)
+        notes_rows = supabase_service.get_parent_guidance_notes(child_id=str(child["id"]), parent_id=parent_id, limit=8)
+        guidance_notes = [n.get("note") for n in notes_rows if n.get("note")]
+
+        # Optional focus session context
+        focus_session_id = chat.get("focus_session_id")
+        focus_context = _build_focus_session_context(str(focus_session_id), str(child["id"])) if focus_session_id else None
+
+        # --- Session-scope guard (LLM-based) ---
+        # If the parent is asking about a specific session but hasn't selected one, prompt them to select.
+        # If they seem to be referring to a different session than the selected one, remind them to switch.
+        available_session_labels: List[str] = []
+        selected_label: Optional[str] = None
+        try:
+            if supabase_service.client:
+                sess_resp = supabase_service.client.table("sessions") \
+                    .select("id, concept, created_at") \
+                    .eq("child_id", str(child["id"])) \
+                    .eq("status", "completed") \
+                    .order("created_at", desc=True) \
+                    .limit(12) \
+                    .execute()
+                for s in (sess_resp.data or []):
+                    label = f"{s.get('created_at')} • {s.get('concept')} • {str(s.get('id'))[:8]}"
+                    available_session_labels.append(label)
+                    if focus_session_id and str(s.get("id")) == str(focus_session_id):
+                        selected_label = label
+        except Exception:
+            available_session_labels = []
+            selected_label = None
+
+        session_check = await _detect_session_scope(
+            parent_message=request.message,
+            selected_focus_session_label=selected_label if focus_session_id else None,
+            available_session_labels=available_session_labels,
+        )
+
+        if session_check.get("intent") == "needs_selection" and float(session_check.get("confidence") or 0.0) >= 0.75:
+            prompt_msg = (
+                f"To discuss a specific past session for {child.get('name','your child')}, "
+                "please select the session date from the left sidebar first so I can load it as context."
+            )
+            supabase_service.add_parent_advisor_message(str(chat_id), "assistant", prompt_msg)
+            return AdvisorChatMessageResponse(
+                chat_id=UUID(str(chat_id)),
+                assistant_message=prompt_msg,
+                appended_notes=[],
+            )
+
+        if session_check.get("intent") == "different_session" and float(session_check.get("confidence") or 0.0) >= 0.75 and selected_label:
+            remind = (
+                f"Right now I’m using the selected session ({selected_label}). "
+                "If you want to discuss a different session, please pick that session from the left sidebar so I can switch context."
+            )
+            supabase_service.add_parent_advisor_message(str(chat_id), "assistant", remind)
+            return AdvisorChatMessageResponse(
+                chat_id=UUID(str(chat_id)),
+                assistant_message=remind,
+                appended_notes=[],
+            )
+
+        # Build learning profile dict (do not ask parent to restate)
+        learning_profile = {
+            "learning_style": child.get("learning_style"),
+            "interests": child.get("interests"),
+            "reading_level": child.get("reading_level"),
+            "attention_span": child.get("attention_span"),
+            "strengths": child.get("strengths"),
+        }
+        if not any(v for v in learning_profile.values()):
+            learning_profile = None
+
+        assistant_message = await advisor_agent.respond(
+            parent_name=current_parent.get("name"),
+            child_name=child.get("name", "Child"),
+            child_age=child.get("age_level"),
+            child_learning_profile=learning_profile,
+            guidance_notes=guidance_notes,
+            child_overall_progress_context=_build_child_overall_progress_context(str(child["id"])),
+            focus_session_context=focus_context,
+            chat_history=chat_history,
+            parent_message=request.message,
+            language=language,
+        )
+
+        # Persist assistant message
+        supabase_service.add_parent_advisor_message(str(chat_id), "assistant", assistant_message)
+
+        # Summarize actionable notes from recent chat and append
+        recent_for_summary = chat_history[-12:] + [{"role": "assistant", "content": assistant_message}]
+        extracted = await parent_guidance_summarizer.extract_notes(
+            child_name=child.get("name", "Child"),
+            recent_chat=recent_for_summary,
+            language=language,
+        )
+
+        appended_notes: List[str] = []
+        for note in extracted:
+            try:
+                supabase_service.add_parent_guidance_note(
+                    parent_id=parent_id,
+                    child_id=str(child["id"]),
+                    note=note,
+                    source_chat_id=str(chat_id),
+                )
+                appended_notes.append(note)
+            except Exception as e:
+                logger.warning(f"Failed to persist guidance note: {e}")
+
+        return AdvisorChatMessageResponse(
+            chat_id=UUID(str(chat_id)),
+            assistant_message=assistant_message,
+            appended_notes=appended_notes,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending advisor message: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to send advisor message.")
+
+
+@router.get("/children/{child_id}/guidance-notes")
+async def get_child_guidance_notes(child_id: UUID, limit: int = Query(10, ge=1, le=50), current_parent: dict = Depends(get_current_parent)):
+    """Get newest parent guidance notes for a child (for UI display / debugging)."""
+    try:
+        parent_id = str(current_parent["id"])
+        verify_child_ownership(str(child_id), parent_id)
+        notes = supabase_service.get_parent_guidance_notes(child_id=str(child_id), parent_id=parent_id, limit=limit)
+        return {"child_id": str(child_id), "notes": notes}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching guidance notes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch guidance notes.")

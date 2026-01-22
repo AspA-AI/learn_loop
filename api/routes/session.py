@@ -62,7 +62,12 @@ async def start_session(request: SessionStartRequest):
         curriculum_files = supabase_service.get_child_curriculum_files(child_id)
         curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
         
-        # 5. Combine all context sources
+        # 5. Fetch newest parent guidance notes (append-only) to steer future sessions
+        # Keep this bounded to manage tokens.
+        guidance_notes_rows = supabase_service.get_parent_guidance_notes(child_id=child_id, limit=6)
+        guidance_notes = [n.get("note") for n in guidance_notes_rows if n.get("note")]
+
+        # 6. Combine all context sources
         context_parts = []
         
         if document_context:
@@ -72,6 +77,14 @@ async def start_session(request: SessionStartRequest):
         if curriculum_content:
             context_parts.append(f"Child's Curriculum Materials:\n{curriculum_content}")
             logger.info(f"📖 [SESSION START] Loaded curriculum content ({len(curriculum_content)} chars)")
+
+        if guidance_notes:
+            notes_block = "\n".join([f"- {n}" for n in guidance_notes])
+            context_parts.append(
+                "Parent guidance notes (apply these preferences throughout the session; do not mention them explicitly to the child unless asked):\n"
+                f"{notes_block}"
+            )
+            logger.info(f"📝 [SESSION START] Loaded {len(guidance_notes)} parent guidance notes")
         
         # Combine all context
         combined_context = "\n\n---\n\n".join(context_parts) if context_parts else None
@@ -83,12 +96,12 @@ async def start_session(request: SessionStartRequest):
         else:
             logger.info(f"📚 [SESSION START] No document chunks or curriculum found for topic '{concept}'")
         
-        # 6. Fallback to general curriculum context (RAG) if no documents or curriculum
+        # 7. Fallback to general curriculum context (RAG) if no documents, curriculum, or guidance
         grounding_context = combined_context
         if not grounding_context:
             grounding_context = weaviate_service.retrieve_curriculum_context(concept, age_level)
         
-        # 7. Extract learning profile from child data (if available)
+        # 8. Extract learning profile from child data (if available)
         learning_profile = None
         if any(child.get(key) for key in ["learning_style", "interests", "reading_level", "attention_span", "strengths"]):
             learning_profile = {
@@ -101,10 +114,10 @@ async def start_session(request: SessionStartRequest):
         
         learning_language = child.get("learning_language", "English")
         
-        # 8. Translate concept name if needed for the child's UI
+        # 9. Translate concept name if needed for the child's UI
         localized_concept = await explainer_agent.translate_concept(concept, learning_language)
         
-        # 9. Get initial explanation from Explainer Agent
+        # 10. Get initial explanation from Explainer Agent
         initial_explanation = await explainer_agent.get_initial_explanation(
             concept=concept,
             age_level=age_level,
@@ -114,7 +127,7 @@ async def start_session(request: SessionStartRequest):
             language=learning_language
         )
         
-        # 10. Save initial interaction to Supabase
+        # 11. Save initial interaction to Supabase
         supabase_service.add_interaction(session_id, "assistant", initial_explanation)
         
         # All academic concepts follow the structured flow: greeting → story → academic → ongoing

@@ -142,3 +142,38 @@ class ParentProfile(BaseModel):
     email: str
     name: Optional[str] = None
     preferred_language: str = "English"
+
+# --- Parent Advisor Chat ---
+
+class AdvisorChatStartRequest(BaseModel):
+    child_id: UUID
+    focus_session_id: Optional[UUID] = None
+
+class AdvisorChatStartResponse(BaseModel):
+    chat_id: UUID
+    child_id: UUID
+    focus_session_id: Optional[UUID] = None
+    messages: List[Dict[str, Any]] = []
+
+class AdvisorChatMessageRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+class AdvisorChatMessageResponse(BaseModel):
+    chat_id: UUID
+    assistant_message: str
+    appended_notes: List[str] = []
+
+class AdvisorChatFocusUpdateRequest(BaseModel):
+    focus_session_id: Optional[UUID] = None
+
+class AdvisorChatFocusUpdateResponse(BaseModel):
+    chat_id: UUID
+    focus_session_id: Optional[UUID] = None
+
+class ParentGuidanceNote(BaseModel):
+    id: UUID
+    child_id: UUID
+    parent_id: UUID
+    note: str
+    source_chat_id: Optional[UUID] = None
+    created_at: str

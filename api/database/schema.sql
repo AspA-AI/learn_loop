@@ -3,6 +3,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Drop existing tables to ensure clean schema update
 DROP TABLE IF EXISTS public.interactions CASCADE;
+DROP TABLE IF EXISTS public.parent_guidance_notes CASCADE;
+DROP TABLE IF EXISTS public.parent_advisor_messages CASCADE;
+DROP TABLE IF EXISTS public.parent_advisor_chats CASCADE;
 DROP TABLE IF EXISTS public.formal_reports CASCADE;
 DROP TABLE IF EXISTS public.sessions CASCADE;
 DROP TABLE IF EXISTS public.child_topics CASCADE;
@@ -123,6 +126,34 @@ CREATE TABLE public.interactions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Parent Advisor Chat Sessions (per-child)
+CREATE TABLE public.parent_advisor_chats (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    parent_id UUID NOT NULL REFERENCES public.parents(id) ON DELETE CASCADE,
+    child_id UUID NOT NULL REFERENCES public.children(id) ON DELETE CASCADE,
+    focus_session_id UUID REFERENCES public.sessions(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Parent Advisor Chat Messages
+CREATE TABLE public.parent_advisor_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chat_id UUID NOT NULL REFERENCES public.parent_advisor_chats(id) ON DELETE CASCADE,
+    role TEXT NOT NULL, -- 'user' | 'assistant'
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Parent Guidance Notes (append-only; used to steer future child sessions)
+CREATE TABLE public.parent_guidance_notes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    parent_id UUID NOT NULL REFERENCES public.parents(id) ON DELETE CASCADE,
+    child_id UUID NOT NULL REFERENCES public.children(id) ON DELETE CASCADE,
+    note TEXT NOT NULL,
+    source_chat_id UUID REFERENCES public.parent_advisor_chats(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 CREATE INDEX idx_parents_email ON public.parents(email);
 CREATE INDEX idx_children_parent_id ON public.children(parent_id);
@@ -135,3 +166,7 @@ CREATE INDEX idx_subject_documents_child_subject ON public.subject_documents(chi
 CREATE INDEX idx_curriculum_documents_parent_id ON public.curriculum_documents(parent_id);
 CREATE INDEX idx_child_curriculum_child_id ON public.child_curriculum(child_id);
 CREATE INDEX idx_child_curriculum_document_id ON public.child_curriculum(document_id);
+
+CREATE INDEX idx_parent_advisor_chats_parent_child ON public.parent_advisor_chats(parent_id, child_id);
+CREATE INDEX idx_parent_advisor_messages_chat_id ON public.parent_advisor_messages(chat_id, created_at);
+CREATE INDEX idx_parent_guidance_notes_child_created ON public.parent_guidance_notes(child_id, created_at DESC);

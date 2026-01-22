@@ -114,6 +114,25 @@ export interface InteractParams {
   audio?: File;
 }
 
+// --- Parent Advisor Chat ---
+export interface AdvisorChatStartResponse {
+  chat_id: string;
+  child_id: string;
+  focus_session_id?: string | null;
+  messages: Array<{ id: string; chat_id: string; role: 'user' | 'assistant'; content: string; created_at: string }>;
+}
+
+export interface AdvisorChatMessageResponse {
+  chat_id: string;
+  assistant_message: string;
+  appended_notes: string[];
+}
+
+export interface AdvisorChatFocusUpdateResponse {
+  chat_id: string;
+  focus_session_id?: string | null;
+}
+
 export interface ChildCreate {
   name: string;
   age_level: number;
@@ -328,6 +347,33 @@ export const learningApi = {
     const response = await apiClient.get(`/parent/reports/${reportId}/translate`, {
       params: { target_language: targetLanguage }
     });
+    return response.data;
+  },
+
+  // --- Parent Advisor Chat ---
+
+  startAdvisorChat: async (childId: string, focusSessionId?: string | null): Promise<AdvisorChatStartResponse> => {
+    const response = await apiClient.post('/parent/advisor/start', {
+      child_id: childId,
+      focus_session_id: focusSessionId || null,
+    });
+    return response.data;
+  },
+
+  sendAdvisorMessage: async (chatId: string, message: string): Promise<AdvisorChatMessageResponse> => {
+    const response = await apiClient.post(`/parent/advisor/${chatId}/message`, { message });
+    return response.data;
+  },
+
+  updateAdvisorChatFocus: async (chatId: string, focusSessionId?: string | null): Promise<AdvisorChatFocusUpdateResponse> => {
+    const response = await apiClient.patch(`/parent/advisor/${chatId}/focus`, {
+      focus_session_id: focusSessionId || null,
+    });
+    return response.data;
+  },
+
+  getChildGuidanceNotes: async (childId: string, limit: number = 10) => {
+    const response = await apiClient.get(`/parent/children/${childId}/guidance-notes`, { params: { limit } });
     return response.data;
   },
 };

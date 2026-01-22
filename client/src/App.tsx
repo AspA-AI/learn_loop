@@ -10,6 +10,7 @@ import LandingPage from './LandingPage';
 import Sidebar from './components/Sidebar';
 import ChatContainer from './features/learning/ChatContainer';
 import ParentDashboard from './features/parent/ParentDashboard';
+import ParentAdvisorWidget from './features/parent/ParentAdvisorWidget';
 import { LogOut } from 'lucide-react';
 import './index.css';
 
@@ -74,13 +75,14 @@ const DashboardLayout: React.FC = () => {
 
   // For parents, show sidebar and dashboard
   return (
-    <div className="flex h-screen w-full bg-background overflow-hidden">
+    <div className="flex h-screen w-full bg-background overflow-hidden relative">
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8 lg:p-12">
         <div className="max-w-6xl mx-auto h-full">
           <ParentDashboard />
         </div>
       </main>
+      <ParentAdvisorWidget />
     </div>
   );
 };

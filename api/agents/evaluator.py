@@ -135,6 +135,3 @@ class EvaluatorAgent:
             }
     
 evaluator_agent = EvaluatorAgent()
-    
-evaluator_agent = EvaluatorAgent()
-

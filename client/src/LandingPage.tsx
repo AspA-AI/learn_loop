@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { useAppDispatch, useAppSelector } from './hooks/store';
 import { parentLogin, parentRegister, setRole } from './features/user/userSlice';
@@ -155,32 +155,29 @@ const LandingPage: React.FC = () => {
               </div>
             </div>
             
-            <AnimatePresence mode="wait">
-              {!showParentLogin ? (
-                <motion.div
-                  key="button"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="space-y-4"
+            {/* NOTE: Avoid AnimatePresence mode="wait" here; LandingPage unmounts immediately on child login.
+                Exit animations during unmount can trigger DOM removeChild errors in React + Framer Motion. */}
+            {!showParentLogin ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="space-y-4"
+              >
+                <button
+                  onClick={() => setShowParentLogin(true)}
+                  className="w-full h-14 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all"
                 >
-                  <button
-                    onClick={() => setShowParentLogin(true)}
-                    className="w-full h-14 bg-white text-indigo-600 rounded-xl font-bold shadow-lg hover:bg-white/90 transition-all"
-                  >
-                    {t('landing.login_register')}
-                  </button>
-                  <p className="text-center text-xs text-white/60 font-semibold">{t('landing.secure_private')}</p>
-                </motion.div>
-              ) : (
-                <motion.form
-                  key="form"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  onSubmit={handleParentAuth}
-                  className="space-y-4"
-                >
+                  {t('landing.login_register')}
+                </button>
+                <p className="text-center text-xs text-white/60 font-semibold">{t('landing.secure_private')}</p>
+              </motion.div>
+            ) : (
+              <motion.form
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                onSubmit={handleParentAuth}
+                className="space-y-4"
+              >
                   {isRegistering && (
                     <div className="relative">
                       <User className="absolute left-4 top-1/2 -translate-y-1/2 text-white/60" size={18} />
@@ -261,9 +258,8 @@ const LandingPage: React.FC = () => {
                       {t('landing.cancel')}
                     </button>
                   </div>
-                </motion.form>
-              )}
-            </AnimatePresence>
+              </motion.form>
+            )}
           </div>
         </motion.div>
       </div>

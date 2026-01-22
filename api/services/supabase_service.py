@@ -3,6 +3,7 @@ import uuid
 import random
 import string
 import warnings
+import time
 from datetime import datetime, timezone
 from supabase import create_client, Client
 from core.config import settings
@@ -13,6 +14,16 @@ logger = logging.getLogger(__name__)
 
 # Suppress Supabase deprecation warnings (they're harmless and will be fixed in future library versions)
 warnings.filterwarnings('ignore', category=DeprecationWarning, module='supabase')
+
+def _is_schema_cache_missing_table(err: Exception) -> bool:
+    """Supabase PostgREST returns PGRST205 when schema cache can't see a table yet."""
+    try:
+        if not isinstance(err, APIError):
+            return False
+        payload = err.args[0] if err.args else None
+        return isinstance(payload, dict) and payload.get("code") == "PGRST205"
+    except Exception:
+        return False
 
 class SupabaseService:
     def __init__(self):
@@ -658,6 +669,135 @@ class SupabaseService:
             return response.data
         except Exception as e:
             logger.error(f"Error fetching sessions by date range: {e}")
+            return []
+
+    # --- Parent Advisor Chat + Guidance Notes ---
+
+    def create_parent_advisor_chat(self, parent_id: str, child_id: str, focus_session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new per-child parent advisor chat session."""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        data = {"parent_id": parent_id, "child_id": child_id, "focus_session_id": focus_session_id}
+        try:
+            response = self.client.table("parent_advisor_chats").insert(data).execute()
+            return response.data[0]
+        except APIError as e:
+            # PostgREST schema cache can lag briefly right after migrations. Retry a bit.
+            if _is_schema_cache_missing_table(e):
+                for delay in (0.5, 1.0, 2.0):
+                    time.sleep(delay)
+                    try:
+                        response = self.client.table("parent_advisor_chats").insert(data).execute()
+                        return response.data[0]
+                    except APIError as e2:
+                        if not _is_schema_cache_missing_table(e2):
+                            raise
+                raise RuntimeError(
+                    "Supabase API schema cache hasn't picked up the new advisor-chat tables yet. "
+                    "If you just ran migrations, wait ~30–60 seconds and try again. "
+                    "If it persists, reload the schema cache in Supabase Dashboard (Settings → API → Reload schema)."
+                )
+            raise
+        except Exception as e:
+            logger.error(f"Error creating parent advisor chat: {e}")
+            raise e
+
+    def get_parent_advisor_chat(self, chat_id: str, parent_id: str) -> Optional[Dict[str, Any]]:
+        """Get a chat session by id (scoped to parent)."""
+        if not self.client:
+            return None
+        try:
+            response = self.client.table("parent_advisor_chats").select("*").eq("id", chat_id).eq("parent_id", parent_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            logger.error(f"Error fetching parent advisor chat: {e}")
+            return None
+
+    def update_parent_advisor_chat_focus(self, chat_id: str, parent_id: str, focus_session_id: Optional[str]) -> Dict[str, Any]:
+        """Update focus_session_id for an existing advisor chat (scoped to parent)."""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            response = self.client.table("parent_advisor_chats") \
+                .update({"focus_session_id": focus_session_id}) \
+                .eq("id", chat_id) \
+                .eq("parent_id", parent_id) \
+                .execute()
+            if not response.data:
+                raise ValueError("Chat not found")
+            return response.data[0]
+        except APIError as e:
+            if _is_schema_cache_missing_table(e):
+                raise RuntimeError(
+                    "Supabase schema cache missing 'parent_advisor_chats'. Apply migrations and reload schema cache."
+                )
+            raise
+        except Exception as e:
+            logger.error(f"Error updating parent advisor chat focus: {e}")
+            raise e
+
+    def add_parent_advisor_message(self, chat_id: str, role: str, content: str) -> Dict[str, Any]:
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            data = {"chat_id": chat_id, "role": role, "content": content}
+            response = self.client.table("parent_advisor_messages").insert(data).execute()
+            return response.data[0]
+        except APIError as e:
+            if _is_schema_cache_missing_table(e):
+                raise RuntimeError(
+                    "Supabase schema cache missing 'parent_advisor_messages'. Apply migrations and reload schema cache."
+                )
+            raise
+        except Exception as e:
+            logger.error(f"Error adding parent advisor message: {e}")
+            raise e
+
+    def get_parent_advisor_messages(self, chat_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        if not self.client:
+            return []
+        try:
+            response = self.client.table("parent_advisor_messages")\
+                .select("*")\
+                .eq("chat_id", chat_id)\
+                .order("created_at", desc=False)\
+                .limit(limit)\
+                .execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching parent advisor messages: {e}")
+            return []
+
+    def add_parent_guidance_note(self, parent_id: str, child_id: str, note: str, source_chat_id: Optional[str] = None) -> Dict[str, Any]:
+        """Append a new parent guidance note for a child (newest-first retrieval)."""
+        if not self.client:
+            raise Exception("Supabase client not initialized.")
+        try:
+            data = {"parent_id": parent_id, "child_id": child_id, "note": note, "source_chat_id": source_chat_id}
+            response = self.client.table("parent_guidance_notes").insert(data).execute()
+            return response.data[0]
+        except APIError as e:
+            if _is_schema_cache_missing_table(e):
+                raise RuntimeError(
+                    "Supabase schema cache missing 'parent_guidance_notes'. Apply migrations and reload schema cache."
+                )
+            raise
+        except Exception as e:
+            logger.error(f"Error adding parent guidance note: {e}")
+            raise e
+
+    def get_parent_guidance_notes(self, child_id: str, parent_id: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get newest guidance notes for a child. Optionally scope to parent."""
+        if not self.client:
+            return []
+        try:
+            q = self.client.table("parent_guidance_notes").select("*").eq("child_id", child_id)
+            if parent_id:
+                q = q.eq("parent_id", parent_id)
+            response = q.order("created_at", desc=True).limit(limit).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error fetching parent guidance notes: {e}")
             return []
 
 supabase_service = SupabaseService()
