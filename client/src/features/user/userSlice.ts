@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import { learningApi, authApi, type ChildCreate, type ChildUpdate, type ParentLogin, type ParentRegister } from '../../services/api';
+import { learningApi, authApi, type ChildCreate, type ParentLogin, type ParentRegister } from '../../services/api';
 
 interface ChildProfile {
   id: string;

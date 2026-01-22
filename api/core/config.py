@@ -7,6 +7,13 @@ class Settings(BaseSettings):
     
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
+
+    # Opik (Comet) tracing / evals
+    # Docs: https://www.comet.com/docs/opik/
+    OPIK_API_KEY: Optional[str] = None
+    OPIK_URL: Optional[str] = None  # Optional: self-hosted instance URL
+    OPIK_PROJECT: str = "learn_loop"
+    OPIK_ENABLED: bool = True
     
     # Supabase
     SUPABASE_URL: Optional[str] = None

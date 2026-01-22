@@ -2,6 +2,7 @@ import logging
 from openai import AsyncOpenAI, OpenAIError, APIStatusError, RateLimitError
 from core.config import settings
 from typing import List, Dict, Any, Optional
+from services.opik_service import opik_service
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +21,66 @@ class OpenAIService:
         response_format: Optional[Dict[str, str]] = None
     ) -> str:
         try:
-            response = await self.client.chat.completions.create(
+            with opik_service.span(
+                name="openai.chat.completions.create",
+                span_type="llm",
+                input={
+                    "model": self.model,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "response_format": response_format,
+                    "messages": messages,
+                },
                 model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format=response_format
-            )
-            return response.choices[0].message.content
+                provider="openai",
+            ) as span:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format
+                )
+                content = response.choices[0].message.content
+
+                # Attach high-value LLM metrics for Opik dashboards:
+                # - usage tokens (prompt/completion/total)
+                # - finish_reason
+                # - output text (bounded)
+                # Opik supports cost tracking; we include usage so it can compute/visualize it.
+                usage = getattr(response, "usage", None)
+                prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+                completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+                total_tokens = getattr(usage, "total_tokens", None) if usage else None
+                finish_reason = None
+                try:
+                    finish_reason = response.choices[0].finish_reason
+                except Exception:
+                    finish_reason = None
+
+                # Keep output preview bounded to avoid huge payloads in tracing.
+                out_preview = content
+                if isinstance(out_preview, str) and len(out_preview) > 1200:
+                    out_preview = out_preview[:1200] + "…"
+
+                try:
+                    if span is not None:
+                        span.update(
+                            output={"content": out_preview},
+                            metadata={
+                                "openai_usage": {
+                                    "prompt_tokens": prompt_tokens,
+                                    "completion_tokens": completion_tokens,
+                                    "total_tokens": total_tokens,
+                                },
+                                "finish_reason": finish_reason,
+                            },
+                        )
+                except Exception:
+                    # Tracing must never break the app
+                    pass
+
+                return content
         except RateLimitError as e:
             logger.error(f"OpenAI Rate Limit exceeded: {e}")
             raise e
@@ -55,12 +108,32 @@ class OpenAIService:
             }
             lang_code = lang_map.get(language) if language else None
 
-            response = await self.client.audio.transcriptions.create(
+            with opik_service.span(
+                name="openai.audio.transcriptions.create",
+                span_type="llm",
+                input={
+                    "model": "whisper-1",
+                    "language": lang_code,
+                    "filename": audio_file[0] if isinstance(audio_file, tuple) and len(audio_file) > 0 else None,
+                },
                 model="whisper-1",
-                file=audio_file,
-                language=lang_code
-            )
-            return response.text
+                provider="openai",
+            ) as span:
+                response = await self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language=lang_code
+                )
+                text = response.text
+                out_preview = text
+                if isinstance(out_preview, str) and len(out_preview) > 1200:
+                    out_preview = out_preview[:1200] + "…"
+                try:
+                    if span is not None:
+                        span.update(output={"text": out_preview})
+                except Exception:
+                    pass
+                return text
         except Exception as e:
             logger.error(f"Error during audio transcription: {e}", exc_info=True)
             raise e

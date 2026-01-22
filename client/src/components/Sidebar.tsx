@@ -17,7 +17,7 @@ import {
 const Sidebar: React.FC = () => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { role, currentChild } = useAppSelector((state) => state.user);
+  const { role } = useAppSelector((state) => state.user);
   const { currentView } = useAppSelector((state) => state.parent);
 
   // For children, no sidebar - they go straight to chat

@@ -8,6 +8,7 @@ from agents.insight import insight_agent
 from services.supabase_service import supabase_service
 from services.weaviate_service import weaviate_service
 from services.openai_service import openai_service
+from services.opik_service import opik_service, set_opik_thread_id
 from utils.curriculum_reader import read_curriculum_files
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -154,22 +155,30 @@ async def interact(
     message: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None)
 ):
+    # Group child multi-turn interactions in Opik under one thread
+    set_opik_thread_id(f"child_session:{session_id}")
     try:
-        # 1. Get session and child info FIRST to determine language
-        try:
-            session = supabase_service.get_session(session_id)
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-            
-        child_id = session.get("child_id")
-        learning_language = "English"
-        if child_id and supabase_service.client:
+        with opik_service.trace(
+            name="session.interact",
+            input={"session_id": session_id, "has_audio": bool(audio), "has_text": bool(message)},
+            metadata={"route": "/sessions/{session_id}/interact"},
+            tags=["child", "session"],
+        ):
+            # 1. Get session and child info FIRST to determine language
             try:
-                child_response = supabase_service.client.table("children").select("learning_language").eq("id", child_id).execute()
-                if child_response.data:
-                    learning_language = child_response.data[0].get("learning_language", "English")
-            except Exception as e:
-                logger.warning(f"Could not fetch learning language: {e}")
+                session = supabase_service.get_session(session_id)
+            except ValueError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+
+            child_id = session.get("child_id")
+            learning_language = "English"
+            if child_id and supabase_service.client:
+                try:
+                    child_response = supabase_service.client.table("children").select("learning_language").eq("id", child_id).execute()
+                    if child_response.data:
+                        learning_language = child_response.data[0].get("learning_language", "English")
+                except Exception as e:
+                    logger.warning(f"Could not fetch learning language: {e}")
 
         # 2. Handle Input (Text or Audio)
         child_message = message

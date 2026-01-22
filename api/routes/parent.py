@@ -18,6 +18,7 @@ from models.schemas import (
 from services.supabase_service import supabase_service
 from services.weaviate_service import weaviate_service
 from services.openai_service import openai_service
+from services.opik_service import opik_service, set_opik_thread_id
 from agents.insight import insight_agent
 from agents.advisor import advisor_agent, parent_guidance_summarizer
 from utils.document_processor import process_document
@@ -1131,8 +1132,15 @@ async def update_advisor_chat_focus(chat_id: UUID, request: AdvisorChatFocusUpda
 @router.post("/advisor/{chat_id}/message", response_model=AdvisorChatMessageResponse)
 async def send_advisor_message(chat_id: UUID, request: AdvisorChatMessageRequest, current_parent: dict = Depends(get_current_parent)):
     """Send a message to the advisor agent within an existing per-child chat."""
+    set_opik_thread_id(f"parent_advisor_chat:{str(chat_id)}")
     try:
-        parent_id = str(current_parent["id"])
+        with opik_service.trace(
+            name="parent.advisor.message",
+            input={"chat_id": str(chat_id), "message": request.message},
+            metadata={"route": "/parent/advisor/{chat_id}/message"},
+            tags=["parent", "advisor"],
+        ):
+            parent_id = str(current_parent["id"])
         chat = supabase_service.get_parent_advisor_chat(str(chat_id), parent_id=parent_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")

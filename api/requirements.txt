@@ -19,3 +19,4 @@ PyPDF2
 python-jose[cryptography]
 passlib[bcrypt]
 email-validator
+opik

@@ -330,3 +330,35 @@ npm install
 
 **Note**: This is an educational project. Ensure you have proper API keys and database access before running in production.
 
+## 🌍 Deploy (free/cheap)
+
+Best practice: **Frontend on a static host** + **Backend as an API service**, using your existing Supabase + Weaviate + OpenAI keys.
+
+### Frontend (Vercel / Netlify)
+
+- **Build**: `npm run build`
+- **Output**: `client/dist`
+- **Env var (required)**:
+  - `VITE_API_BASE_URL` = `https://YOUR_BACKEND_DOMAIN/api/v1`
+
+### Backend (Railway / Render / Fly.io)
+
+Recommended start command:
+
+- `uvicorn main:app --host 0.0.0.0 --port $PORT`
+
+Or use the provided Dockerfile:
+
+- `api/Dockerfile`
+
+Backend env vars (minimum):
+- `OPENAI_API_KEY`
+- `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_DB_URL`
+- `WEAVIATE_URL`, `WEAVIATE_API_KEY`
+- `JWT_SECRET` (change for production)
+- `OPIK_API_KEY` (optional), `OPIK_PROJECT` (optional), `OPIK_URL` (optional)
+
+### Important: curriculum file storage
+
+Curriculum uploads are currently stored on the backend filesystem. On many free hosts the filesystem is **ephemeral**, so uploads may disappear on redeploy/restart. For production you’ll want persistent disk or an object store (S3/Supabase Storage).
+

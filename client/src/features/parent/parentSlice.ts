@@ -94,7 +94,7 @@ const parentSlice = createSlice({
       .addCase(fetchCurriculum.fulfilled, (state, action) => {
         state.curriculum = action.payload;
       })
-      .addCase(uploadDocument.fulfilled, (state, action) => {
+      .addCase(uploadDocument.fulfilled, (state) => {
         // Optimistically add or just refresh
         state.isLoading = false;
       })
