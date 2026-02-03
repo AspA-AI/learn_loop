@@ -1,11 +1,18 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
 import { learningApi, type StartSessionParams } from '../../services/api';
+import { setCurrentChildFromSession } from '../user/userSlice';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  type: 'text' | 'audio';
+  type: 'text' | 'audio'; // COMMENTED OUT: 'visual_exercise' (keeping for future implementation)
   transcribedText?: string;
+  // COMMENTED OUT: Visual exercise feature (keeping for future implementation)
+  // visualExercise?: {
+  //   exercise_type: string;
+  //   instruction: string;
+  //   data: any;
+  // };
 }
 
 interface QuizState {
@@ -36,6 +43,7 @@ interface LearningState {
   isEnding: boolean;
   conversationPhase: string | null; // "greeting", "story_explanation", "story_quiz", "academic_explanation", "academic_quiz", "ongoing"
   quiz: QuizState;
+  sessionStartTime: number | null; // Timestamp when session started (for duration tracking)
 }
 
 const initialState: LearningState = {
@@ -53,6 +61,7 @@ const initialState: LearningState = {
   error: null,
   isEnding: false,
   conversationPhase: null,
+  sessionStartTime: null,
   quiz: {
     active: false,
     question: null,
@@ -68,9 +77,33 @@ const initialState: LearningState = {
 
 export const startLearningSession = createAsyncThunk(
   'learning/startSession',
-  async (params: StartSessionParams, { rejectWithValue }) => {
+  async (params: StartSessionParams, { rejectWithValue, dispatch }) => {
     try {
-      return await learningApi.startSession(params);
+      const response = await learningApi.startSession(params);
+      console.log('🌍 [SESSION START] Response:', { 
+        child_id: response.child_id, 
+        learning_code: response.learning_code, 
+        learning_language: response.learning_language,
+        child_name: response.child_name 
+      });
+      // Also set currentChild in user slice so learning_language is available immediately
+      if (response.child_id && response.learning_code && response.learning_language) {
+        console.log('🌍 [SESSION START] Dispatching setCurrentChildFromSession');
+        dispatch(setCurrentChildFromSession({
+          id: String(response.child_id), // Ensure it's a string
+          child_name: response.child_name,
+          learning_language: response.learning_language,
+          learning_code: response.learning_code,
+          age_level: response.age_level,
+        }));
+      } else {
+        console.warn('🌍 [SESSION START] Missing required fields:', {
+          has_child_id: !!response.child_id,
+          has_learning_code: !!response.learning_code,
+          has_learning_language: !!response.learning_language,
+        });
+      }
+      return response;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.detail || 'Failed to start session');
     }
@@ -101,7 +134,12 @@ export const endSession = createAsyncThunk(
       const state = getState() as { learning: LearningState };
       if (!state.learning.sessionId) throw new Error('No active session');
       
-      return await learningApi.endSession(state.learning.sessionId);
+      // Calculate duration from start time
+      const durationSeconds = state.learning.sessionStartTime 
+        ? Math.floor((Date.now() - state.learning.sessionStartTime) / 1000)
+        : undefined;
+      
+      return await learningApi.endSession(state.learning.sessionId, durationSeconds);
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.detail || 'Failed to end session');
     }
@@ -187,6 +225,7 @@ const learningSlice = createSlice({
       state.canTakeQuiz = false;
       state.isLoading = false;
       state.isEnding = false;
+      state.sessionStartTime = null;
       state.quiz = initialState.quiz;
     },
   },
@@ -205,6 +244,7 @@ const learningSlice = createSlice({
         state.ageLevel = action.payload.age_level;
         state.conversationPhase = action.payload.conversation_phase || null;
         state.learningLanguage = action.payload.learning_language || null;
+        state.sessionStartTime = Date.now(); // Track session start time
         state.messages = [{ 
           role: 'assistant', 
           content: action.payload.initial_explanation, 
@@ -251,11 +291,20 @@ const learningSlice = createSlice({
           state.quiz.totalQuestions = action.payload.quiz_total_questions || null;
         }
         
+        // COMMENTED OUT: Visual exercise handling (keeping for future implementation)
+        // // Check if response includes visual exercise
+        // const hasVisualExercise = action.payload.visual_exercise !== null && action.payload.visual_exercise !== undefined;
+        // 
+        // if (hasVisualExercise) {
+        //   console.log('🎨 [FRONTEND] Visual exercise received:', action.payload.visual_exercise);
+        // }
+        
         state.messages.push({
           role: 'assistant',
           content: action.payload.agent_response,
-          type: 'text',
+          type: 'text', // COMMENTED OUT: hasVisualExercise ? 'visual_exercise' : 'text'
           transcribedText: action.payload.transcribed_text
+          // COMMENTED OUT: visualExercise: action.payload.visual_exercise || undefined
         });
       })
       .addCase(submitInteraction.rejected, (state, action) => {

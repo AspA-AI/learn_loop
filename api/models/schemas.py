@@ -60,6 +60,8 @@ class SessionStartRequest(BaseModel):
 class SessionStartResponse(BaseModel):
     session_id: UUID
     child_name: str
+    child_id: UUID  # Add child_id so frontend can set currentChild
+    learning_code: str  # Add learning_code so frontend can set currentChild
     concept: str
     localized_concept: Optional[str] = None
     age_level: int  # Changed from AgeLevel enum to int for flexibility
@@ -80,9 +82,12 @@ class InteractionResponse(BaseModel):
     quiz_question: Optional[str] = None  # Current quiz question if quiz is active
     quiz_question_number: Optional[int] = None  # Current question number (e.g., 1 of 5)
     quiz_total_questions: Optional[int] = None  # Total questions in current quiz
+    # COMMENTED OUT: Visual exercise feature (keeping for future implementation)
+    visual_exercise: Optional[Dict[str, Any]] = None  # Visual exercise data if learning style is visual (currently disabled)
 
 class SessionEndRequest(BaseModel):
     session_id: UUID
+    duration_seconds: Optional[int] = None  # Optional: frontend can send actual session duration
 
 class SessionEndResponse(BaseModel):
     success: bool

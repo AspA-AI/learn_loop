@@ -22,6 +22,7 @@ class AdvisorAgent:
         guidance_notes: List[str],
         child_overall_progress_context: Optional[str],
         focus_session_context: Optional[str],
+        curriculum_content: Optional[str],
         chat_history: List[Dict[str, str]],
         parent_message: str,
         language: str = "English",
@@ -38,6 +39,12 @@ class AdvisorAgent:
             "- Do NOT claim you have data that isn't provided.\n"
             "- If the parent asks about a specific session, stick to the provided session transcript/evaluation.\n"
             "- Keep responses concise and practical.\n"
+            "CRITICAL - Curriculum Understanding:\n"
+            "- The curriculum is a MANDATORY educational framework that defines required subjects and topics that MUST be covered.\n"
+            "- It is NOT optional or preference-based - it's the standard that learning must align with.\n"
+            "- Your role is to help ensure ALL curriculum requirements are met over time, not to suggest picking favorites.\n"
+            "- When discussing curriculum, focus on comprehensive coverage and identifying gaps, not selective focus based on interests.\n"
+            "- Help plan how to cover all curriculum requirements, adapting teaching approaches while ensuring full coverage.\n"
             f"Respond in {language}.\n"
         )
 
@@ -55,10 +62,30 @@ class AdvisorAgent:
 
         focus_block = focus_session_context or "(no specific session selected)"
 
+        curriculum_block = curriculum_content if curriculum_content else "(no curriculum attached)"
+        if curriculum_content:
+            logger.info(f"📖 [ADVISOR] Including curriculum in context ({len(curriculum_content)} chars)")
+        else:
+            logger.warning(f"⚠️ [ADVISOR] No curriculum content provided for child: {child_name}")
+
+        curriculum_instruction = ""
+        if curriculum_content:
+            curriculum_instruction = (
+                "\n\nIMPORTANT - Curriculum Framework:\n"
+                "The curriculum below is a MANDATORY educational standard that defines required subjects and topics that MUST be covered. "
+                "It is NOT a menu of options. Your role is to:\n"
+                "- Help ensure ALL curriculum requirements are met over time\n"
+                "- Identify what has been covered and what still needs to be addressed\n"
+                "- Plan how to cover all curriculum requirements comprehensively\n"
+                "- Adapt teaching approaches to the child's learning style while ensuring full curriculum coverage\n"
+                "Do NOT suggest picking favorite subjects or focusing only on interests - ensure comprehensive coverage of all required topics.\n"
+            )
+        
         user = (
             f"Parent name: {parent_name or 'Parent'}\n"
             f"{child_block}\n\n"
             f"Child learning profile (do not ask parent to restate): {profile_block or '(not provided)'}\n\n"
+            f"Child's Mandatory Curriculum Framework (required coverage):\n{curriculum_block}{curriculum_instruction}\n\n"
             f"Existing parent guidance notes (newest first):\n{notes_block}\n\n"
             f"Overall child progress summary (use this for trends; do not invent missing data):\n{overall_block}\n\n"
             f"Selected session context (if any):\n{focus_block}\n\n"

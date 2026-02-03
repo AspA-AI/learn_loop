@@ -7,6 +7,8 @@ import { logout } from '../user/userSlice';
 import ProgressGauge from './ProgressGauge';
 import { Mic, Send, Sparkles, BookOpen, Square, CheckCircle, X, Rocket, Star, Brain, Zap, Award, Lightbulb, MessageCircle, Volume2 } from 'lucide-react';
 import { learningApi } from '../../services/api';
+// COMMENTED OUT: Visual exercise component (keeping for future implementation)
+// import TenFramesExercise from '../../components/visual/TenFramesExercise';
 
 const ChatContainer: React.FC = () => {
   const { t } = useTranslation();
@@ -248,6 +250,42 @@ const ChatContainer: React.FC = () => {
                               <Star size={12} className="text-indigo-500 fill-indigo-500" />
                             </div>
                             <p className="text-base leading-relaxed font-medium text-slate-800">{msg.content}</p>
+                            
+                            {/* COMMENTED OUT: Visual exercise rendering (keeping for future implementation) */}
+                            {/* {msg.type === 'visual_exercise' && msg.visualExercise && (
+                              <div className="mt-4">
+                                {(() => {
+                                  console.log('🎨 [RENDER] Visual exercise detected:', msg.visualExercise);
+                                  if (msg.visualExercise.exercise_type === 'ten_frames' && msg.visualExercise.data?.frames) {
+                                    return (
+                                      <TenFramesExercise
+                                        frames={msg.visualExercise.data.frames}
+                                        instruction={msg.visualExercise.instruction || 'Complete the equations'}
+                                        onComplete={(answers) => {
+                                          console.log('Visual exercise completed:', answers);
+                                        }}
+                                      />
+                                    );
+                                  } else {
+                                    // Fallback: show exercise data for unsupported types
+                                    return (
+                                      <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4">
+                                        <p className="text-sm font-bold text-yellow-800 mb-2">
+                                          Visual Exercise: {msg.visualExercise.exercise_type || 'unknown'}
+                                        </p>
+                                        <p className="text-xs text-yellow-700">
+                                          {msg.visualExercise.instruction || 'Complete the exercise'}
+                                        </p>
+                                        <pre className="text-xs mt-2 text-yellow-600 overflow-auto">
+                                          {JSON.stringify(msg.visualExercise.data, null, 2)}
+                                        </pre>
+                                      </div>
+                                    );
+                                  }
+                                })()}
+                              </div>
+                            )} */}
+                            
                             <div className="mt-3 flex items-center gap-2">
                               <button
                                 type="button"

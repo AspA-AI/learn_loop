@@ -80,6 +80,17 @@ const MetricBar: React.FC<{ label: string; value: number; color: string; definit
   );
 };
 
+// Utility function to format seconds as HH:MM:SS (always full format for clarity)
+const formatTime = (seconds: number): string => {
+  if (seconds < 0) return '00:00:00';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  // Always use HH:MM:SS format so it's unambiguous (e.g., 00:03:55 = 3 min 55 sec, 03:55:00 = 3 hours 55 min)
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
 const FormalReports: React.FC = () => {
   const { t } = useTranslation();
   const { profiles } = useAppSelector((state) => state.user);
@@ -554,8 +565,8 @@ const GrowthInsights: React.FC = () => {
                     <p className="text-3xl font-black text-purple-600">{childStat.total_sessions}</p>
                   </div>
                   <div className="p-5 bg-gradient-to-br from-pink-50 to-indigo-50 rounded-2xl border border-pink-100">
-                    <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.hours')}</p>
-                    <p className="text-3xl font-black text-pink-600">{childStat.total_hours}</p>
+                    <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.time')}</p>
+                    <p className="text-3xl font-black text-pink-600 font-mono">{formatTime(childStat.total_seconds || 0)}</p>
                   </div>
                 </div>
               </motion.div>
@@ -577,8 +588,8 @@ const GrowthInsights: React.FC = () => {
               <p className="text-3xl font-black text-purple-600">{insights.total_sessions}</p>
             </div>
             <div className="p-5 bg-gradient-to-br from-pink-50 to-indigo-50 rounded-2xl border border-pink-100">
-              <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.learning_hours')}</p>
-              <p className="text-3xl font-black text-pink-600">{insights.total_hours}</p>
+              <p className="text-xs font-bold text-pink-600 uppercase tracking-wider mb-2">{t('parent.learning_time')}</p>
+              <p className="text-3xl font-black text-pink-600 font-mono">{formatTime(insights.total_seconds || 0)}</p>
             </div>
           </div>
         </div>
@@ -641,9 +652,12 @@ const ChildrenManagement: React.FC = () => {
 
   // Get stats for each child from insights
   const getChildStats = (childId: string) => {
-    if (!insights) return { mastery: 0, hours: 0 };
+    if (!insights) return { mastery: 0, timeFormatted: '00:00:00' };
     const stat = insights.children_stats.find(s => s.child_id === childId);
-    return stat ? { mastery: stat.mastery_percent, hours: stat.total_hours } : { mastery: 0, hours: 0 };
+    return stat ? { 
+      mastery: stat.mastery_percent, 
+      timeFormatted: formatTime(stat.total_seconds || 0) 
+    } : { mastery: 0, timeFormatted: '00:00:00' };
   };
 
   const handleAddChild = (e: React.FormEvent) => {
@@ -1614,10 +1628,10 @@ const ChildrenManagement: React.FC = () => {
                                             key={doc.id}
                                             className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200"
                                           >
-                                            <div className="flex items-center gap-3 flex-1">
-                                              <FileText size={16} className="text-indigo-600" />
-                                              <div>
-                                                <p className="text-sm font-bold text-slate-800">{doc.file_name}</p>
+                                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                                              <FileText size={16} className="text-indigo-600 flex-shrink-0" />
+                                              <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-bold text-slate-800 truncate" title={doc.file_name}>{doc.file_name}</p>
                                                 <p className="text-xs text-slate-500">
                                                   {(doc.file_size / 1024 / 1024).toFixed(2)} MB
                                                 </p>
@@ -1667,8 +1681,8 @@ const ChildrenManagement: React.FC = () => {
                   </div>
                   <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 text-center">
                     <Clock size={16} className="mx-auto mb-2 text-purple-600" />
-                    <p className="text-2xl font-black text-purple-600">{getChildStats(profile.id).hours}</p>
-                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider">{t('parent.hours')}</p>
+                    <p className="text-2xl font-black text-purple-600 font-mono">{getChildStats(profile.id).timeFormatted}</p>
+                    <p className="text-xs font-bold text-purple-600 uppercase tracking-wider">{t('parent.time')}</p>
                   </div>
                 </div>
 

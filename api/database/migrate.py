@@ -14,11 +14,25 @@ def run_migrations():
 
     # Clean the URL (remove quotes and spaces that might come from .env parsing)
     db_url = db_url.strip().strip('"').strip("'")
+    
+    # Check if using pooler - warn user to use direct connection
+    if 'pooler' in db_url.lower() or ':6543' in db_url:
+        logger.warning("⚠️  You're using a connection pooler URL. For migrations, use the DIRECT connection string.")
+        logger.warning("   Get it from: Supabase Dashboard → Settings → Database → Connection string → Direct connection")
+        logger.warning("   It should use port 5432, not 6543")
 
     try:
         # Connect to the Supabase PostgreSQL database
         logger.info("Connecting to Supabase Database...")
-        conn = psycopg2.connect(db_url)
+        # Add connection timeout and keepalive settings
+        conn = psycopg2.connect(
+            db_url,
+            connect_timeout=10,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=5
+        )
         cur = conn.cursor()
 
         # Read the schema.sql file

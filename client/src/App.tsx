@@ -21,13 +21,23 @@ const DashboardLayout: React.FC = () => {
   const dispatch = useAppDispatch();
   const { i18n, t } = useTranslation();
   const { role, currentChild } = useAppSelector((state) => state.user);
-  const { learningLanguage } = useAppSelector((state) => state.learning);
+  const { learningLanguage, sessionId } = useAppSelector((state) => state.learning);
   const lastAppliedChildLang = useRef<string | null>(null);
 
   // Sync i18n language with child's learning language if in child role
+  // Priority: learningLanguage from session > currentChild.learning_language
+  // This MUST override parent language when child logs in
   useEffect(() => {
-    const childLanguage = currentChild?.learning_language || learningLanguage;
-    if (role !== 'child' || !childLanguage) return;
+    // For children, use learning language from session state or child profile
+    const childLanguage = learningLanguage || currentChild?.learning_language;
+    
+    // If we have a session (sessionId exists), we're in child mode even if role isn't set yet
+    const isChildMode = role === 'child' || (sessionId && childLanguage);
+    
+    if (!isChildMode || !childLanguage) {
+      console.log(`🌍 [UI] Child language sync skipped - isChildMode: ${isChildMode}, childLanguage: ${childLanguage}, role: ${role}, sessionId: ${sessionId}`);
+      return;
+    }
 
     const langCode = {
       English: 'en',
@@ -43,11 +53,22 @@ const DashboardLayout: React.FC = () => {
     const alreadyApplied = lastAppliedChildLang.current === langCode;
     const matchesCurrent = currentLang?.startsWith(langCode);
 
-    if (!alreadyApplied && !matchesCurrent) {
+    console.log(`🌍 [UI] Child language sync check - childLanguage: ${childLanguage}, langCode: ${langCode}, currentLang: ${currentLang}, alreadyApplied: ${alreadyApplied}, matchesCurrent: ${matchesCurrent}`);
+
+    // Force language change if it doesn't match - ALWAYS override parent language for children
+    if (!matchesCurrent) {
       lastAppliedChildLang.current = langCode;
-      i18n.changeLanguage(langCode);
+      i18n.changeLanguage(langCode).then(() => {
+        console.log(`🌍 [UI] ✅ Language successfully changed to ${langCode} (${childLanguage})`);
+      }).catch((err) => {
+        console.error(`🌍 [UI] ❌ Failed to change language:`, err);
+      });
+    } else if (!alreadyApplied) {
+      // Update ref even if language already matches
+      lastAppliedChildLang.current = langCode;
+      console.log(`🌍 [UI] Language already set to ${langCode}, updating ref`);
     }
-  }, [role, currentChild?.learning_language, learningLanguage, i18n]);
+  }, [role, currentChild?.learning_language, learningLanguage, i18n, sessionId]);
 
   const handleLogout = () => {
     dispatch(logout());
@@ -90,7 +111,7 @@ const DashboardLayout: React.FC = () => {
 const AppContent: React.FC = () => {
   const dispatch = useAppDispatch();
   const { i18n } = useTranslation();
-  const { isAuthenticated, parentProfile } = useAppSelector((state) => state.user);
+  const { isAuthenticated, parentProfile, role } = useAppSelector((state) => state.user);
   const lastAppliedParentLang = useRef<string | null>(null);
 
   useEffect(() => {
@@ -99,8 +120,21 @@ const AppContent: React.FC = () => {
   }, [dispatch]);
 
   // Handle parent preferred language on initial load
+  // BUT: Don't override if a child is logged in (child language takes priority)
   useEffect(() => {
-    if (!isAuthenticated || !parentProfile?.preferred_language) return;
+    // Skip if child is logged in - child language sync will handle it
+    if (role === 'child') {
+      lastAppliedParentLang.current = null; // Clear parent lang ref when child logs in
+      return;
+    }
+    
+    if (!isAuthenticated || !parentProfile?.preferred_language) {
+      // Clear parent lang ref when logged out
+      if (!isAuthenticated) {
+        lastAppliedParentLang.current = null;
+      }
+      return;
+    }
 
     const langCode = {
       English: 'en',
@@ -119,8 +153,9 @@ const AppContent: React.FC = () => {
     if (!alreadyApplied && !matchesCurrent) {
       lastAppliedParentLang.current = langCode;
       i18n.changeLanguage(langCode);
+      console.log(`🌍 [UI] Parent language changed to ${langCode}`);
     }
-  }, [isAuthenticated, parentProfile?.preferred_language, i18n]);
+  }, [isAuthenticated, parentProfile?.preferred_language, i18n, role]);
 
   return isAuthenticated ? <DashboardLayout /> : <LandingPage />;
 };

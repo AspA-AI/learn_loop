@@ -355,11 +355,14 @@ class SupabaseService:
     def get_child_curriculum_files(self, child_id: str) -> List[Dict[str, Any]]:
         """Get all curriculum documents linked to a child"""
         if not self.client:
+            logger.warning(f"⚠️ [CURRICULUM] Supabase client not available for child_id: {child_id}")
             return []
         try:
+            logger.info(f"🔍 [CURRICULUM] Querying curriculum for child_id: {child_id}")
             # Get curriculum documents linked to this child
             response = self.client.table("child_curriculum").select("document_id, curriculum_documents(*)").eq("child_id", child_id).execute()
             
+            logger.info(f"🔍 [CURRICULUM] Raw response data: {len(response.data) if response.data else 0} items")
             curriculum_files = []
             for item in response.data:
                 if item.get("curriculum_documents"):
@@ -371,10 +374,14 @@ class SupabaseService:
                         "file_size": doc.get("file_size"),
                         "created_at": doc.get("created_at")
                     })
+                    logger.info(f"✅ [CURRICULUM] Found curriculum: {doc.get('file_name')} (id: {doc.get('id')}, path: {doc.get('storage_path')})")
+                else:
+                    logger.warning(f"⚠️ [CURRICULUM] Item missing curriculum_documents: {item}")
             
+            logger.info(f"📚 [CURRICULUM] Returning {len(curriculum_files)} curriculum files for child_id: {child_id}")
             return curriculum_files
         except Exception as e:
-            logger.error(f"Error fetching child curriculum files: {e}")
+            logger.error(f"❌ [CURRICULUM] Error fetching child curriculum files for child_id {child_id}: {e}", exc_info=True)
             return []
 
     def remove_curriculum_for_child(self, child_id: str) -> List[str]:
@@ -589,22 +596,57 @@ class SupabaseService:
             logger.error(f"Error fetching interactions with states: {e}")
             return []
 
-    def end_session(self, session_id: str, evaluation_report: Dict[str, Any], metrics: Optional[Dict[str, Any]] = None, academic_summary: Optional[str] = None):
+    def end_session(self, session_id: str, evaluation_report: Dict[str, Any], metrics: Optional[Dict[str, Any]] = None, academic_summary: Optional[str] = None, duration_seconds: Optional[int] = None):
         """End a session and save evaluation report, metrics and summary"""
         if not self.client:
             raise Exception("Supabase client not initialized.")
         try:
+            # Get session to calculate duration if not provided
+            session = self.get_session(session_id)
+            ended_at = datetime.now(timezone.utc)
+            
+            # Calculate duration if not provided
+            if duration_seconds is None:
+                created_at_str = session.get("created_at")
+                if created_at_str:
+                    try:
+                        # Parse ISO format timestamp
+                        if isinstance(created_at_str, str):
+                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        else:
+                            created_at = created_at_str
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+                        duration_seconds = int((ended_at - created_at).total_seconds())
+                    except Exception as e:
+                        logger.warning(f"Could not calculate duration from timestamps: {e}")
+                        duration_seconds = None
+            
             update_data = {
                 "status": "completed",
                 "evaluation_report": evaluation_report,
-                "ended_at": datetime.now(timezone.utc).isoformat()
+                "ended_at": ended_at.isoformat()
             }
             if metrics:
                 update_data["metrics"] = metrics
             if academic_summary:
                 update_data["academic_summary"] = academic_summary
-                
-            self.client.table("sessions").update(update_data).eq("id", session_id).execute()
+            
+            # Try to update with duration_seconds, but don't fail if column doesn't exist yet
+            if duration_seconds is not None:
+                try:
+                    update_data["duration_seconds"] = duration_seconds
+                    self.client.table("sessions").update(update_data).eq("id", session_id).execute()
+                except APIError as e:
+                    # If column doesn't exist (PGRST204), update without duration_seconds
+                    if isinstance(e.args[0], dict) and e.args[0].get("code") == "PGRST204":
+                        logger.warning(f"duration_seconds column not found in database. Please run migration: {e}")
+                        update_data.pop("duration_seconds", None)
+                        self.client.table("sessions").update(update_data).eq("id", session_id).execute()
+                    else:
+                        raise e
+            else:
+                self.client.table("sessions").update(update_data).eq("id", session_id).execute()
         except Exception as e:
             logger.error(f"Error ending session: {e}")
             raise e
@@ -766,6 +808,40 @@ class SupabaseService:
             return response.data
         except Exception as e:
             logger.error(f"Error fetching parent advisor messages: {e}")
+            return []
+
+    def list_parent_advisor_chats(self, parent_id: str, child_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all advisor chats for a parent, optionally filtered by child_id. Returns chats with child info and message count."""
+        if not self.client:
+            return []
+        try:
+            query = self.client.table("parent_advisor_chats")\
+                .select("*, children(id, name, age_level)")\
+                .eq("parent_id", parent_id)\
+                .order("created_at", desc=True)
+            
+            if child_id:
+                query = query.eq("child_id", child_id)
+            
+            response = query.execute()
+            
+            # Get message counts for each chat
+            chats_with_counts = []
+            for chat in response.data:
+                # Get message count by fetching all message IDs and counting
+                try:
+                    msg_response = self.client.table("parent_advisor_messages")\
+                        .select("id")\
+                        .eq("chat_id", chat["id"])\
+                        .execute()
+                    chat["message_count"] = len(msg_response.data) if msg_response.data else 0
+                except Exception:
+                    chat["message_count"] = 0
+                chats_with_counts.append(chat)
+            
+            return chats_with_counts
+        except Exception as e:
+            logger.error(f"Error listing parent advisor chats: {e}")
             return []
 
     def add_parent_guidance_note(self, parent_id: str, child_id: str, note: str, source_chat_id: Optional[str] = None) -> Dict[str, Any]:

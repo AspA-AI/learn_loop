@@ -22,10 +22,11 @@ from services.opik_service import opik_service, set_opik_thread_id
 from agents.insight import insight_agent
 from agents.advisor import advisor_agent, parent_guidance_summarizer
 from utils.document_processor import process_document
+from utils.curriculum_reader import read_curriculum_files
 from routes.auth import get_current_parent
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -503,6 +504,26 @@ async def upload_subject_document(
         if len(existing_docs) >= 2:
             raise HTTPException(status_code=400, detail="Maximum 2 documents allowed per subject per child. Please remove an existing document first.")
         
+        # 2.5. Check if this exact document already exists (same filename for same child/subject)
+        existing_doc = next((d for d in existing_docs if d.get("file_name") == file.filename), None)
+        if existing_doc:
+            # Document already exists - we'll replace it
+            logger.info(f"Document {file.filename} already exists for this child/subject. Replacing it...")
+            # Delete old chunks from Weaviate first
+            try:
+                weaviate_service.delete_document_chunks(
+                    child_id=str(child_id),
+                    subject=subject,
+                    file_name=file.filename
+                )
+            except Exception as e:
+                logger.warning(f"Error deleting old Weaviate chunks before replacement: {e}")
+            # Delete old document from database
+            try:
+                supabase_service.remove_subject_document(str(child_id), existing_doc["id"])
+            except Exception as e:
+                logger.warning(f"Error removing old document before replacement: {e}")
+        
         # 3. Process document (chunk, embed, store in Weaviate)
         try:
             chunks = process_document(file_content, file.filename)
@@ -510,7 +531,7 @@ async def upload_subject_document(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         
-        # 4. Store chunks in Weaviate
+        # 4. Store chunks in Weaviate (this will overwrite/replace existing chunks for same metadata)
         weaviate_success = weaviate_service.store_subject_document_chunks(
             child_id=str(child_id),
             subject=subject,
@@ -524,14 +545,30 @@ async def upload_subject_document(
         
         # 5. Save metadata to database (file content already extracted and stored in Weaviate)
         # We don't need to store the original file since it's chunked and embedded in Weaviate
-        doc = supabase_service.add_subject_document(
-            child_id=str(child_id),
-            subject=subject,
-            file_name=file.filename,
-            file_size=file_size,
-            storage_path=None,  # Not storing original file, only metadata
-            weaviate_collection_id="SubjectDocuments"
-        )
+        try:
+            doc = supabase_service.add_subject_document(
+                child_id=str(child_id),
+                subject=subject,
+                file_name=file.filename,
+                file_size=file_size,
+                storage_path=None,  # Not storing original file, only metadata
+                weaviate_collection_id="SubjectDocuments"
+            )
+        except Exception as e:
+            # Handle duplicate key error gracefully (in case of race condition)
+            error_str = str(e).lower()
+            if "duplicate" in error_str or "23505" in error_str:
+                logger.warning(f"Document {file.filename} already exists. Attempting to retrieve existing document...")
+                # Try to get the existing document
+                existing_docs_retry = supabase_service.get_subject_documents(str(child_id), subject)
+                existing_doc_retry = next((d for d in existing_docs_retry if d.get("file_name") == file.filename), None)
+                if existing_doc_retry:
+                    doc = existing_doc_retry
+                    logger.info(f"Using existing document record for {file.filename}")
+                else:
+                    raise HTTPException(status_code=400, detail=f"Document {file.filename} already exists for this child/subject. Please remove it first if you want to replace it.")
+            else:
+                raise
         
         return {
             "success": True,
@@ -767,7 +804,34 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
         children_stats = []
         for child_id, data in children_data.items():
             avg_mastery = int(sum(data["mastery_scores"]) / len(data["mastery_scores"])) if data["mastery_scores"] else 0
-            total_hours = round((data["total_interactions"] * 5) / 60, 1)
+            
+            # Use stored duration_seconds from sessions, fallback to calculating from timestamps
+            total_seconds = 0
+            for session in data["sessions"]:
+                duration_sec = session.get("duration_seconds")
+                if duration_sec:
+                    total_seconds += duration_sec
+                else:
+                    # Fallback: calculate from timestamps if duration not stored
+                    try:
+                        created_at = session.get("created_at")
+                        ended_at = session.get("ended_at")
+                        if created_at and ended_at:
+                            if isinstance(created_at, str):
+                                created = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                            else:
+                                created = created_at
+                            if isinstance(ended_at, str):
+                                ended = datetime.fromisoformat(ended_at.replace('Z', '+00:00'))
+                            else:
+                                ended = ended_at
+                            if created.tzinfo is None:
+                                created = created.replace(tzinfo=timezone.utc)
+                            if ended.tzinfo is None:
+                                ended = ended.replace(tzinfo=timezone.utc)
+                            total_seconds += int((ended - created).total_seconds())
+                    except Exception:
+                        pass  # Skip if can't calculate
             
             children_stats.append({
                 "child_id": str(child_id),
@@ -775,13 +839,39 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
                 "mastery_count": sum(1 for score in data["mastery_scores"] if score >= 80),  # Count high mastery sessions
                 "mastery_percent": avg_mastery,
                 "total_sessions": len(data["sessions"]),
-                "total_hours": total_hours
+                "total_seconds": total_seconds  # Return seconds for frontend to format
             })
         
         # 5. Calculate overall stats
         overall_mastery = int(sum(r.get("mastery_percent", 0) for r in all_reports) / len(all_reports)) if all_reports else 0
-        total_interactions = sum(r.get("total_interactions", 0) for r in all_reports)
-        total_hours = round((total_interactions * 5) / 60, 1)
+        
+        # Calculate total hours from all sessions' duration_seconds
+        total_seconds_all = 0
+        for session in completed_sessions:
+            duration_sec = session.get("duration_seconds")
+            if duration_sec:
+                total_seconds_all += duration_sec
+            else:
+                # Fallback: calculate from timestamps
+                try:
+                    created_at = session.get("created_at")
+                    ended_at = session.get("ended_at")
+                    if created_at and ended_at:
+                        if isinstance(created_at, str):
+                            created = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        else:
+                            created = created_at
+                        if isinstance(ended_at, str):
+                            ended = datetime.fromisoformat(ended_at.replace('Z', '+00:00'))
+                        else:
+                            ended = ended_at
+                        if created.tzinfo is None:
+                            created = created.replace(tzinfo=timezone.utc)
+                        if ended.tzinfo is None:
+                            ended = ended.replace(tzinfo=timezone.utc)
+                        total_seconds_all += int((ended - created).total_seconds())
+                except Exception:
+                    pass
         
         # 6. Create summary from aggregated reports
         summary = f"Your children have completed {len(completed_sessions)} learning session(s). " \
@@ -792,7 +882,7 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
             "children_stats": children_stats,
             "overall_mastery": overall_mastery,
             "total_sessions": len(completed_sessions),
-            "total_hours": total_hours,
+            "total_seconds": total_seconds_all,  # Return seconds for frontend to format
             "achievements": list(set(all_achievements))[:10],  # Deduplicate and limit
             "challenges": list(set(all_challenges))[:10],
             "recommended_next_steps": list(set(all_next_steps))[:5]
@@ -1079,6 +1169,23 @@ async def start_advisor_chat(request: AdvisorChatStartRequest, current_parent: d
         raise HTTPException(status_code=500, detail="Failed to start advisor chat.")
 
 
+@router.get("/advisor")
+async def list_advisor_chats(
+    child_id: Optional[UUID] = Query(None, description="Filter by child_id"),
+    current_parent: dict = Depends(get_current_parent)
+):
+    """List all advisor chats for the current parent, optionally filtered by child_id."""
+    try:
+        parent_id = str(current_parent["id"])
+        chats = supabase_service.list_parent_advisor_chats(
+            parent_id=parent_id,
+            child_id=str(child_id) if child_id else None
+        )
+        return {"chats": chats}
+    except Exception as e:
+        logger.error(f"Error listing advisor chats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to list advisor chats.")
+
 @router.get("/advisor/{chat_id}")
 async def get_advisor_chat(chat_id: UUID, current_parent: dict = Depends(get_current_parent)):
     """Fetch advisor chat history (scoped to current parent)."""
@@ -1267,14 +1374,30 @@ async def send_advisor_message(chat_id: UUID, request: AdvisorChatMessageRequest
         if not any(v for v in learning_profile.values()):
             learning_profile = None
 
+        # Get curriculum files for this child and read their content
+        child_id_str = str(child["id"])
+        logger.info(f"📚 [ADVISOR] Retrieving curriculum for child_id: {child_id_str}")
+        curriculum_files = supabase_service.get_child_curriculum_files(child_id_str)
+        logger.info(f"📚 [ADVISOR] Found {len(curriculum_files) if curriculum_files else 0} curriculum files")
+        if curriculum_files:
+            for cf in curriculum_files:
+                logger.info(f"📚 [ADVISOR] Curriculum file: {cf.get('file_name')} (path: {cf.get('storage_path')})")
+        
+        curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
+        if curriculum_content:
+            logger.info(f"📖 [ADVISOR] Loaded curriculum content ({len(curriculum_content)} chars)")
+        else:
+            logger.warning(f"⚠️ [ADVISOR] No curriculum content loaded for child_id: {child_id_str}")
+
         assistant_message = await advisor_agent.respond(
             parent_name=current_parent.get("name"),
             child_name=child.get("name", "Child"),
             child_age=child.get("age_level"),
             child_learning_profile=learning_profile,
             guidance_notes=guidance_notes,
-            child_overall_progress_context=_build_child_overall_progress_context(str(child["id"])),
+            child_overall_progress_context=_build_child_overall_progress_context(child_id_str),
             focus_session_context=focus_context,
+            curriculum_content=curriculum_content,
             chat_history=chat_history,
             parent_message=request.message,
             language=language,

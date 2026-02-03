@@ -7,7 +7,7 @@ interface ChildStat {
   mastery_count: number;
   mastery_percent: number;
   total_sessions: number;
-  total_hours: number;
+  total_seconds: number;  // Changed from total_hours to total_seconds
 }
 
 interface ParentInsight {
@@ -18,7 +18,7 @@ interface ParentInsight {
   children_stats: ChildStat[];
   overall_mastery: number;
   total_sessions: number;
-  total_hours: number;
+  total_seconds: number;  // Changed from total_hours to total_seconds
 }
 
 interface CurriculumDoc {

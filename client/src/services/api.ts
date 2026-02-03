@@ -186,8 +186,11 @@ export const learningApi = {
     return response.data as Blob;
   },
 
-  endSession: async (sessionId: string) => {
-    const response = await apiClient.post(`/sessions/${sessionId}/end`);
+  endSession: async (sessionId: string, durationSeconds?: number) => {
+    const response = await apiClient.post(`/sessions/${sessionId}/end`, {
+      session_id: sessionId,
+      duration_seconds: durationSeconds
+    });
     return response.data;
   },
 
@@ -362,6 +365,17 @@ export const learningApi = {
   },
 
   // --- Parent Advisor Chat ---
+
+  listAdvisorChats: async (childId?: string): Promise<{ chats: Array<{ id: string; child_id: string; created_at: string; focus_session_id?: string | null; children?: { id: string; name: string; age_level: number } | null; message_count: number }> }> => {
+    const params = childId ? { child_id: childId } : {};
+    const response = await apiClient.get('/parent/advisor', { params });
+    return response.data;
+  },
+
+  getAdvisorChat: async (chatId: string): Promise<{ chat: any; messages: Array<{ id: string; role: string; content: string; created_at: string }> }> => {
+    const response = await apiClient.get(`/parent/advisor/${chatId}`);
+    return response.data;
+  },
 
   startAdvisorChat: async (childId: string, focusSessionId?: string | null): Promise<AdvisorChatStartResponse> => {
     const response = await apiClient.post('/parent/advisor/start', {

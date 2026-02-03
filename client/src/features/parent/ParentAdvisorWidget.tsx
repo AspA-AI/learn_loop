@@ -44,6 +44,10 @@ const ParentAdvisorWidget: React.FC = () => {
 
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<Array<{ id: string; child_id: string; created_at: string; focus_session_id?: string | null; children?: { id: string; name: string; age_level: number } | null; message_count: number }>>([]);
+  const [conversationHistoryLoading, setConversationHistoryLoading] = useState(false);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [viewingHistory, setViewingHistory] = useState(false);
 
   const [messages, setMessages] = useState<AdvisorMsg[]>([]);
   const [input, setInput] = useState('');
@@ -88,15 +92,51 @@ const ParentAdvisorWidget: React.FC = () => {
     run();
   }, [open, selectedChildId]);
 
+  // Load conversation history when widget opens
+  useEffect(() => {
+    const run = async () => {
+      if (!open) return;
+      setConversationHistoryLoading(true);
+      try {
+        const res = await learningApi.listAdvisorChats(selectedChildId || undefined);
+        setConversationHistory(res.chats || []);
+      } catch {
+        setConversationHistory([]);
+      } finally {
+        setConversationHistoryLoading(false);
+      }
+    };
+    run();
+  }, [open, selectedChildId]);
+
   // Start / restart chat whenever selected child or focus session changes (explicit reset)
+  // OR load a selected conversation from history
   useEffect(() => {
     const run = async () => {
       if (!open || !selectedChildId) return;
+      
+      // If viewing a conversation from history, load it instead of starting new
+      if (selectedConversationId && viewingHistory) {
+        try {
+          const res = await learningApi.getAdvisorChat(selectedConversationId);
+          setChatId(res.chat.id);
+          setMessages((res.messages || []).map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })));
+          setFocusSessionId(res.chat.focus_session_id || null);
+        } catch {
+          setChatId(null);
+          setMessages([{ role: 'assistant', content: 'Unable to load conversation. Please try again.' }]);
+        }
+        return;
+      }
+      
+      // Otherwise start a new chat
       try {
         // Start chat only when child is selected / widget opens. Session focus changes should not reset chat.
         const res = await learningApi.startAdvisorChat(selectedChildId, null);
         setChatId(res.chat_id);
         setMessages((res.messages || []).map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })));
+        setViewingHistory(false);
+        setSelectedConversationId(null);
       } catch {
         setChatId(null);
         setMessages([{ role: 'assistant', content: 'Unable to start advisor chat right now. Please try again.' }]);
@@ -104,7 +144,7 @@ const ParentAdvisorWidget: React.FC = () => {
     };
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedChildId]);
+  }, [open, selectedChildId, selectedConversationId, viewingHistory]);
 
   // Update focus session in-place (same child, same chat)
   useEffect(() => {
@@ -150,6 +190,14 @@ const ParentAdvisorWidget: React.FC = () => {
         setNoteToast(`Saved ${res.appended_notes.length} new guidance note(s) for this child.`);
         window.setTimeout(() => setNoteToast(null), 4000);
       }
+      
+      // Refresh conversation history to update message counts
+      try {
+        const historyRes = await learningApi.listAdvisorChats(selectedChildId || undefined);
+        setConversationHistory(historyRes.chats || []);
+      } catch {
+        // Silently fail - not critical
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -183,7 +231,8 @@ const ParentAdvisorWidget: React.FC = () => {
               <div className="leading-tight">
                 <div className="font-semibold text-slate-800">Advisor Agent</div>
                 <div className="text-xs text-slate-600">
-                  Child-scoped chat{focusSessionId ? ` • Discussing session ${focusSessionId.slice(0, 8)}…` : ''}
+                  {viewingHistory ? 'Viewing previous conversation' : 'Child-scoped chat'}
+                  {focusSessionId ? ` • Discussing session ${focusSessionId.slice(0, 8)}…` : ''}
                 </div>
               </div>
             </div>
@@ -225,6 +274,8 @@ const ParentAdvisorWidget: React.FC = () => {
                           onClick={() => {
                             setFocusSessionId(null);
                             setSelectedChildId(c.id);
+                            setViewingHistory(false);
+                            setSelectedConversationId(null);
                           }}
                           className={[
                             'w-full text-left px-3 py-2 rounded-xl transition border',
@@ -242,6 +293,63 @@ const ParentAdvisorWidget: React.FC = () => {
                       {children.length === 0 && (
                         <div className="text-xs text-slate-600 bg-white/60 rounded-xl p-3 border border-white/60">
                           No children found yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Previous Conversations */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] font-semibold text-slate-600">Previous Conversations</div>
+                      {conversationHistoryLoading && <div className="text-[11px] text-slate-500">Loading…</div>}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setViewingHistory(false);
+                        setSelectedConversationId(null);
+                        setFocusSessionId(null);
+                      }}
+                      className={[
+                        'w-full text-left px-3 py-2 rounded-xl border transition mb-2',
+                        !viewingHistory
+                          ? 'bg-violet-600 text-white border-violet-600'
+                          : 'bg-white/70 text-slate-800 border-white/60 hover:bg-white',
+                      ].join(' ')}
+                    >
+                      <div className="text-sm font-semibold">New Conversation</div>
+                      <div className={`text-[11px] ${!viewingHistory ? 'text-violet-100' : 'text-slate-500'}`}>
+                        Start a fresh discussion
+                      </div>
+                    </button>
+                    <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                      {conversationHistory.map((conv) => {
+                        const childName = conv.children?.name || 'Unknown';
+                        const dateStr = formatDate(conv.created_at);
+                        return (
+                          <button
+                            key={conv.id}
+                            onClick={() => {
+                              setSelectedConversationId(conv.id);
+                              setViewingHistory(true);
+                            }}
+                            className={[
+                              'w-full text-left px-3 py-2 rounded-xl transition border',
+                              selectedConversationId === conv.id && viewingHistory
+                                ? 'bg-violet-600 text-white border-violet-600'
+                                : 'bg-white/70 text-slate-800 border-white/60 hover:bg-white',
+                            ].join(' ')}
+                          >
+                            <div className="text-sm font-semibold truncate">{dateStr}</div>
+                            <div className={`text-[11px] ${selectedConversationId === conv.id && viewingHistory ? 'text-violet-100' : 'text-slate-500'}`}>
+                              {childName} • {conv.message_count} messages
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {!conversationHistoryLoading && conversationHistory.length === 0 && (
+                        <div className="text-xs text-slate-600 bg-white/60 rounded-xl p-3 border border-white/60">
+                          No previous conversations yet.
                         </div>
                       )}
                     </div>
@@ -269,7 +377,7 @@ const ParentAdvisorWidget: React.FC = () => {
                       </div>
                     </button>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1 max-h-[150px] overflow-y-auto">
                       {(sessions || []).map((s) => (
                         <button
                           key={s.session_id}

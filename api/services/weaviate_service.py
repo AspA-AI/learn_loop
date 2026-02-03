@@ -16,6 +16,9 @@ class WeaviateService:
             return
 
         try:
+            if not settings.WEAVIATE_API_KEY:
+                logger.warning("WEAVIATE_API_KEY not set. Weaviate connection may fail or have limited functionality.")
+            
             auth_credentials = Auth.api_key(settings.WEAVIATE_API_KEY) if settings.WEAVIATE_API_KEY else None
             # Add OpenAI key to headers for vectorization
             headers = {
@@ -27,9 +30,32 @@ class WeaviateService:
                 auth_credentials=auth_credentials,
                 headers=headers
             )
-            logger.info("Successfully connected to Weaviate.")
+            
+            # Verify connection and authentication
+            if self.client.is_live():
+                logger.info("Successfully connected to Weaviate.")
+                # Try a simple operation to verify authentication
+                try:
+                    # Just check if we can list collections (this will fail if auth is wrong)
+                    _ = list(self.client.collections.list_all())
+                    logger.info("Weaviate authentication verified.")
+                except Exception as auth_check_error:
+                    error_msg = str(auth_check_error).lower()
+                    if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                        logger.error(f"⚠️ Weaviate authentication failed! Please verify WEAVIATE_API_KEY is correct. Error: {auth_check_error}")
+                        logger.error("RAG features will be disabled until authentication is fixed.")
+                        self.client = None
+                    else:
+                        logger.warning(f"Weaviate connection established but collection check failed: {auth_check_error}")
+            else:
+                logger.warning("Weaviate client is not live.")
+                self.client = None
         except Exception as e:
-            logger.error(f"Failed to connect to Weaviate: {e}")
+            error_msg = str(e).lower()
+            if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                logger.error(f"⚠️ Failed to connect to Weaviate: Authentication error. Please check WEAVIATE_API_KEY. Error: {e}")
+            else:
+                logger.error(f"Failed to connect to Weaviate: {e}")
             self.client = None
 
     def retrieve_curriculum_context(self, concept: str, age_level: int) -> Optional[str]:
@@ -42,6 +68,11 @@ class WeaviateService:
             
         try:
             # v4 Querying
+            # Check if collection exists first
+            if not self.client.collections.exists("EducationalContent"):
+                logger.debug(f"EducationalContent collection does not exist. Skipping curriculum context retrieval.")
+                return None
+            
             educational_content = self.client.collections.get("EducationalContent")
             
             response = educational_content.query.near_text(
@@ -57,7 +88,13 @@ class WeaviateService:
                 logger.info(f"Successfully retrieved curriculum context for {concept}")
                 return f"Grounding Context: {props.get('explanation_text')}. Suggested Analogy: {props.get('analogy_pool')}"
         except Exception as e:
-            logger.error(f"Weaviate retrieval error for {concept}: {e}")
+            error_msg = str(e).lower()
+            if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                logger.error(f"Weaviate authentication failed. Please check WEAVIATE_API_KEY. Error: {e}")
+            elif "could not find class" in error_msg or "does not exist" in error_msg:
+                logger.debug(f"Collection does not exist in Weaviate. This is expected if no documents have been uploaded yet.")
+            else:
+                logger.error(f"Weaviate retrieval error for {concept}: {e}")
             
         return None
 
@@ -75,22 +112,41 @@ class WeaviateService:
             collection_name = "SubjectDocuments"
             
             # Check if collection exists, create with OpenAI vectorizer if not
-            if not self.client.collections.exists(collection_name):
+            # Handle authentication errors gracefully
+            collection_exists = False
+            try:
+                collection_exists = self.client.collections.exists(collection_name)
+            except Exception as auth_error:
+                error_msg = str(auth_error).lower()
+                if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                    logger.error(f"Weaviate authentication failed. Please check WEAVIATE_API_KEY in environment variables. Error: {auth_error}")
+                    return False
+                # If it's a different error (like collection doesn't exist), continue to create it
+                logger.info(f"Collection '{collection_name}' check returned: {auth_error}. Will attempt to create.")
+            
+            if not collection_exists:
                 logger.info(f"Creating collection '{collection_name}' with OpenAI vectorizer...")
-                self.client.collections.create(
-                    name=collection_name,
-                    vectorizer_config=Configure.Vectorizer.text2vec_openai(),  # Uses OpenAI to vectorize
-                    properties=[
-                        Property(name="content", data_type=DataType.TEXT),  # This will be vectorized
-                        Property(name="child_id", data_type=DataType.TEXT),
-                        Property(name="subject", data_type=DataType.TEXT),
-                        Property(name="topic", data_type=DataType.TEXT),
-                        Property(name="source_file", data_type=DataType.TEXT),
-                        Property(name="chunk_index", data_type=DataType.INT),
-                        Property(name="total_chunks", data_type=DataType.INT),
-                    ]
-                )
-                logger.info(f"Successfully created '{collection_name}' collection with OpenAI vectorizer.")
+                try:
+                    self.client.collections.create(
+                        name=collection_name,
+                        vectorizer_config=Configure.Vectorizer.text2vec_openai(),  # Uses OpenAI to vectorize
+                        properties=[
+                            Property(name="content", data_type=DataType.TEXT),  # This will be vectorized
+                            Property(name="child_id", data_type=DataType.TEXT),
+                            Property(name="subject", data_type=DataType.TEXT),
+                            Property(name="topic", data_type=DataType.TEXT),
+                            Property(name="source_file", data_type=DataType.TEXT),
+                            Property(name="chunk_index", data_type=DataType.INT),
+                            Property(name="total_chunks", data_type=DataType.INT),
+                        ]
+                    )
+                    logger.info(f"Successfully created '{collection_name}' collection with OpenAI vectorizer.")
+                except Exception as create_error:
+                    error_msg = str(create_error).lower()
+                    if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                        logger.error(f"Weaviate authentication failed during collection creation. Please check WEAVIATE_API_KEY. Error: {create_error}")
+                        return False
+                    raise  # Re-raise if it's a different error
             
             collection = self.client.collections.get(collection_name)
             
@@ -115,6 +171,69 @@ class WeaviateService:
             logger.error(f"Error storing subject document chunks: {e}", exc_info=True)
             return False
 
+    def delete_document_chunks(self, child_id: str, subject: str, file_name: str) -> bool:
+        """
+        Delete all chunks for a specific document from Weaviate.
+        Used when replacing/updating a document.
+        """
+        if not self.client or not self.client.is_live():
+            logger.warning("Weaviate client not available. Cannot delete chunks.")
+            return False
+        
+        try:
+            collection_name = "SubjectDocuments"
+            
+            # Check if collection exists
+            try:
+                if not self.client.collections.exists(collection_name):
+                    logger.debug(f"Collection {collection_name} does not exist. Nothing to delete.")
+                    return True  # Nothing to delete, consider it successful
+            except Exception as auth_error:
+                error_msg = str(auth_error).lower()
+                if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                    logger.error(f"Weaviate authentication failed. Cannot delete chunks. Error: {auth_error}")
+                    return False
+                # Collection doesn't exist, nothing to delete
+                return True
+            
+            collection = self.client.collections.get(collection_name)
+            
+            # Build filter to match this specific document
+            filters = [
+                Filter.by_property("child_id").equal(child_id),
+                Filter.by_property("subject").equal(subject),
+                Filter.by_property("source_file").equal(file_name)
+            ]
+            
+            # Combine filters with AND
+            combined_filter = filters[0]
+            for f in filters[1:]:
+                combined_filter = combined_filter & f
+            
+            # Fetch objects matching the filter to get their UUIDs
+            response = collection.query.fetch_objects(
+                filters=combined_filter,
+                limit=1000,  # Get all chunks for this document
+                return_properties=[]  # We only need UUIDs
+            )
+            
+            if response.objects:
+                # Delete all matching objects
+                uuids_to_delete = [obj.uuid for obj in response.objects]
+                collection.data.delete_many(uuids=uuids_to_delete)
+                logger.info(f"Deleted {len(uuids_to_delete)} chunks for document {file_name} (child_id: {child_id}, subject: {subject})")
+                return True
+            else:
+                logger.debug(f"No chunks found to delete for document {file_name}")
+                return True  # Nothing to delete, consider it successful
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                logger.error(f"Weaviate authentication failed. Cannot delete chunks. Error: {e}")
+            else:
+                logger.error(f"Error deleting document chunks: {e}", exc_info=True)
+            return False
+
     def retrieve_all_topic_chunks(self, child_id: str, topic: str, subject: Optional[str] = None) -> Optional[str]:
         """
         Retrieve ALL relevant chunks for a topic at session start.
@@ -126,6 +245,21 @@ class WeaviateService:
         
         try:
             collection_name = "SubjectDocuments"
+            
+            # Check if collection exists first
+            try:
+                if not self.client.collections.exists(collection_name):
+                    logger.debug(f"SubjectDocuments collection does not exist. No chunks available for topic {topic}.")
+                    return None
+            except Exception as auth_error:
+                error_msg = str(auth_error).lower()
+                if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                    logger.error(f"Weaviate authentication failed. Please check WEAVIATE_API_KEY. Error: {auth_error}")
+                    return None
+                # If collection doesn't exist, that's fine - just return None
+                logger.debug(f"SubjectDocuments collection does not exist. No chunks available for topic {topic}.")
+                return None
+            
             collection = self.client.collections.get(collection_name)
             
             # Build filter: must match child_id and topic
@@ -164,7 +298,13 @@ class WeaviateService:
                 logger.info(f"No document chunks found for topic {topic}")
                 return None
         except Exception as e:
-            logger.error(f"Error retrieving topic chunks: {e}", exc_info=True)
+            error_msg = str(e).lower()
+            if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+                logger.error(f"Weaviate authentication failed. Please check WEAVIATE_API_KEY. Error: {e}")
+            elif "could not find class" in error_msg or "does not exist" in error_msg:
+                logger.debug(f"Collection does not exist in Weaviate. This is expected if no documents have been uploaded yet.")
+            else:
+                logger.error(f"Error retrieving topic chunks: {e}", exc_info=True)
             return None
 
     def close(self):

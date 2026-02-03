@@ -98,6 +98,7 @@ CREATE TABLE public.sessions (
     evaluation_report JSONB, -- Stores the final evaluation report when session ends
     metrics JSONB, -- Stores {accuracy, confidence, persistence, expression} (1-10)
     academic_summary TEXT, -- Exactly 3 sentences for periodic reporting
+    duration_seconds INTEGER, -- Actual session duration in seconds (tracked from frontend)
     ended_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

@@ -1,6 +1,6 @@
 import logging
 import json
-from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form, Query
+from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Form, Query, Body
 from models.schemas import SessionStartRequest, SessionStartResponse, InteractionResponse, UnderstandingState, SessionEndRequest, SessionEndResponse
 from pydantic import BaseModel, Field
 from fastapi.responses import Response
@@ -67,7 +67,9 @@ async def start_session(request: SessionStartRequest):
         )
         
         # 4. Get curriculum files for this child and read their content
+        logger.info(f"📚 [SESSION START] Retrieving curriculum for child_id: {child_id}")
         curriculum_files = supabase_service.get_child_curriculum_files(child_id)
+        logger.info(f"📚 [SESSION START] Found {len(curriculum_files) if curriculum_files else 0} curriculum files")
         curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
         
         # 5. Fetch newest parent guidance notes (append-only) to steer future sessions
@@ -121,6 +123,7 @@ async def start_session(request: SessionStartRequest):
             }
         
         learning_language = child.get("learning_language", "English")
+        logger.info(f"🌍 [SESSION START] Child's learning language: {learning_language}")
         
         # 9. Translate concept name if needed for the child's UI
         localized_concept = await explainer_agent.translate_concept(concept, learning_language)
@@ -142,6 +145,8 @@ async def start_session(request: SessionStartRequest):
         return SessionStartResponse(
             session_id=UUID(session_id),
             child_name=child["name"],
+            child_id=UUID(child_id),
+            learning_code=child.get("learning_code", ""),
             concept=concept,
             localized_concept=localized_concept,
             age_level=age_level,
@@ -184,6 +189,7 @@ async def interact(
                     child_response = supabase_service.client.table("children").select("learning_language").eq("id", child_id).execute()
                     if child_response.data:
                         learning_language = child_response.data[0].get("learning_language", "English")
+                        logger.info(f"🌍 [INTERACT] Using learning language: {learning_language}")
                 except Exception as e:
                     logger.warning(f"Could not fetch learning language: {e}")
 
@@ -270,8 +276,9 @@ async def interact(
         logger.info(f"✅ [EVALUATION] Result: {state.value.upper()}")
         logger.info(f"💡 [EVALUATION] Reasoning: {reasoning}")
         
-        # Initialize quiz option
+        # Initialize quiz option and visual exercise
         can_take_quiz = False
+        visual_exercise = None  # Will be set if learning style is visual
         
         # Count consecutive confused states
         recent_states = [i.get("understanding_state") for i in history_data[-5:] if i.get("understanding_state")]
@@ -300,6 +307,41 @@ async def interact(
         # Handle step-by-step flow for ALL academic concepts
         if conversation_phase == "story_explanation":
             # Step 1: Child said ready, give story explanation with quiz
+            # COMMENTED OUT: Visual exercise feature (keeping for future implementation)
+            # is_visual_learner = learning_profile and learning_profile.get("learning_style", "").lower() == "visual"
+            # 
+            # if is_visual_learner:
+            #     # For visual learners: VERY short story, then immediate visual exercise
+            #     logger.info("🎨 [VISUAL] Short story + visual exercise for visual learner")
+            #     agent_response = await explainer_agent.get_story_explanation(
+            #         concept=session["concept"],
+            #         age_level=session["age_level"],
+            #         child_name="there",
+            #         grounding_context=grounding_context,
+            #         learning_profile=learning_profile,
+            #         language=learning_language
+            #     )
+            #     # Keep story VERY short - truncate to first sentence only
+            #     sentences = agent_response.split('.')
+            #     if len(sentences) > 0:
+            #         agent_response = sentences[0].strip() + '.'
+            #     else:
+            #         agent_response = agent_response[:100] + '...'  # Fallback truncation
+            #     
+            #     # Generate visual exercise immediately for visual learners
+            #     visual_exercise = await explainer_agent.generate_visual_exercise(
+            #         concept=session["concept"],
+            #         age_level=session["age_level"],
+            #         child_name="there",
+            #         learning_profile=learning_profile,
+            #         language=learning_language
+            #     )
+            #     if visual_exercise:
+            #         logger.info(f"🎨 [VISUAL] Generated exercise type: {visual_exercise.get('exercise_type')}")
+            #     else:
+            #         logger.warning("🎨 [VISUAL] Failed to generate visual exercise")
+            # else:
+            #     # For non-visual learners: normal story explanation
             agent_response = await explainer_agent.get_story_explanation(
                 concept=session["concept"],
                 age_level=session["age_level"],
@@ -308,6 +350,7 @@ async def interact(
                 learning_profile=learning_profile,
                 language=learning_language
             )
+            
             can_end_session = False
             should_offer_end = False
             conversation_phase = "story_quiz"
@@ -334,6 +377,34 @@ async def interact(
                 language=learning_language
             )
             agent_response += "\n\n" + academic_quiz
+            # COMMENTED OUT: Visual exercise feature (keeping for future implementation)
+            # # Check if visual learning style - generate visual exercise instead of text quiz
+            # visual_exercise = None
+            # is_visual_learner = learning_profile and learning_profile.get("learning_style", "").lower() == "visual"
+            # 
+            # if is_visual_learner:
+            #     # Generate visual exercise for visual learners
+            #     logger.info("🎨 [VISUAL] Generating visual exercise for visual learner")
+            #     visual_exercise = await explainer_agent.generate_visual_exercise(
+            #         concept=session["concept"],
+            #         age_level=session["age_level"],
+            #         child_name="there",
+            #         learning_profile=learning_profile,
+            #         language=learning_language
+            #     )
+            #     if visual_exercise:
+            #         agent_response += f"\n\n{visual_exercise.get('instruction', 'Complete the exercise below!')}"
+            # else:
+            #     # Text-based quiz for non-visual learners
+            #     academic_quiz = await explainer_agent.get_academic_quiz(
+            #         concept=session["concept"],
+            #         age_level=session["age_level"],
+            #         child_name="there",
+            #         learning_profile=learning_profile,
+            #         language=learning_language
+            #     )
+            #     agent_response += "\n\n" + academic_quiz
+            
             can_end_session = False
             should_offer_end = False
             conversation_phase = "academic_quiz"
@@ -384,6 +455,23 @@ async def interact(
 
         logger.info(f"🏁 [DECISION] Final flags -> can_end_session: {can_end_session}, can_take_quiz: {can_take_quiz}")
         
+        # COMMENTED OUT: Visual exercise feature for ongoing phase (keeping for future implementation)
+        # # Check if we should generate visual exercise for visual learners in ongoing phase
+        # if visual_exercise is None and conversation_phase == "ongoing":
+        #     is_visual_learner = learning_profile and learning_profile.get("learning_style", "").lower() == "visual"
+        #     if is_visual_learner and state == UnderstandingState.UNDERSTOOD:
+        #         # Offer visual exercise when they understand a concept
+        #         logger.info("🎨 [VISUAL] Generating visual exercise for ongoing conversation")
+        #         visual_exercise = await explainer_agent.generate_visual_exercise(
+        #             concept=session["concept"],
+        #             age_level=session["age_level"],
+        #             child_name="there",
+        #             learning_profile=learning_profile,
+        #             language=learning_language
+        #         )
+        #         if visual_exercise:
+        #             agent_response += f"\n\n{visual_exercise.get('instruction', 'Try this visual exercise!')}"
+        
         # 5. Save interactions to Supabase
         supabase_service.add_interaction(session_id, "user", child_message)
         supabase_service.add_interaction(session_id, "assistant", agent_response, state)
@@ -420,7 +508,8 @@ async def interact(
             quiz_active=quiz_active,
             quiz_question=quiz_question,
             quiz_question_number=quiz_question_number,
-            quiz_total_questions=quiz_total_questions
+            quiz_total_questions=quiz_total_questions,
+            visual_exercise=None  # COMMENTED OUT: visual_exercise feature (keeping for future implementation)
         )
     except HTTPException:
         raise
@@ -471,8 +560,8 @@ async def tts(session_id: str, request: TTSRequest):
         raise HTTPException(status_code=500, detail="Failed to generate speech.")
 
 @router.post("/{session_id}/end", response_model=SessionEndResponse)
-async def end_session(session_id: str):
-    """End a session and generate evaluation report"""
+async def end_session(session_id: str, request: Optional[SessionEndRequest] = Body(None)):
+    """End a session and generate evaluation report. Optionally accepts duration_seconds in request body."""
     try:
         # 1. Get session and all interactions
         try:
@@ -521,12 +610,39 @@ async def end_session(session_id: str):
         # 4. Generate evaluation report using InsightAgent
         report = await insight_agent.generate_parent_report(sessions_data)
         
-        # 5. Calculate mastery stats
-        states = [i.get("understanding_state") for i in interactions if i.get("understanding_state")]
+        # 5. Calculate mastery stats - EXCLUDE procedural responses (they're not about the topic)
+        # Only count states that are actually about understanding the concept
+        states = [i.get("understanding_state") for i in interactions 
+                 if i.get("understanding_state") and i.get("understanding_state") != "procedural"]
         total = len(states)
         understood = states.count("understood") if total > 0 else 0
         partial = states.count("partial") if total > 0 else 0
-        mastery_percent = int(((understood * 1.0 + partial * 0.5) / total) * 100) if total > 0 else 0
+        confused = states.count("confused") if total > 0 else 0
+        
+        # Base mastery from understanding states (weighted: understood=1.0, partial=0.6, confused=0.2)
+        base_mastery = 0.0
+        if total > 0:
+            base_mastery = ((understood * 1.0 + partial * 0.6 + confused * 0.2) / total) * 100
+        
+        # Check for quiz performance and include it in mastery calculation
+        quiz_percentage = None
+        if session_id in quiz_states:
+            quiz_state = quiz_states[session_id]
+            quiz_scores = quiz_state.get("scores", [])
+            if quiz_scores:
+                total_quiz_score = sum(quiz_scores)
+                max_quiz_score = len(quiz_scores) * 100
+                quiz_percentage = (total_quiz_score / max_quiz_score * 100) if max_quiz_score > 0 else 0
+        
+        # If quiz was taken, combine base mastery (40%) with quiz performance (60%)
+        # If no quiz, use base mastery only
+        if quiz_percentage is not None:
+            mastery_percent = int((base_mastery * 0.4 + quiz_percentage * 0.6))
+        else:
+            mastery_percent = int(base_mastery)
+        
+        # Ensure mastery is between 0 and 100
+        mastery_percent = max(0, min(100, mastery_percent))
         
         # 6. Enrich report with session metadata
         evaluation_report = {
@@ -544,11 +660,14 @@ async def end_session(session_id: str):
         }
         
         # 7. Save report, metrics and summary to database
+        # Use duration from request body if provided, otherwise calculate from timestamps
+        duration_seconds = request.duration_seconds if request and hasattr(request, 'duration_seconds') else None
         supabase_service.end_session(
             session_id=session_id, 
             evaluation_report=evaluation_report,
             metrics=academic_report.get("metrics"),
-            academic_summary=academic_report.get("summary")
+            academic_summary=academic_report.get("summary"),
+            duration_seconds=duration_seconds
         )
 
         # Clean up any active quiz state for this session (if the child ended during a quiz)

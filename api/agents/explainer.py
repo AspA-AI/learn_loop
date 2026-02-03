@@ -18,7 +18,8 @@ class ExplainerAgent:
         """
         base_constraints = (
             "CRITICAL CONSTRAINTS:\n"
-            f"- All communication MUST be entirely in {language}\n"
+            f"- ALL your responses, explanations, questions, and communication MUST be ENTIRELY in {language}. Never use English or any other language.\n"
+            f"- If the language is {language}, respond ONLY in {language}. Every single word you write must be in {language}.\n"
             "- You MUST stay focused ONLY on the concept: '{concept}'\n"
             "- Do NOT introduce other topics, concepts, or related subjects\n"
             "- Max 3 sentences per explanation\n"
@@ -187,8 +188,9 @@ class ExplainerAgent:
         user_prompt = (
             f"Greet {child_name} warmly and ask if they're ready to start learning about '{concept}'. "
             f"Be friendly and encouraging. Keep it short - just 2-3 sentences. "
+            f"IMPORTANT: You MUST respond ENTIRELY in {language}. Do not use any English words. "
             f"Adapt your language to be appropriate for a {age_level}-year-old child. "
-            f"Example structure: 'Hey {child_name}! How are you today? Are you ready to learn about {concept}? "
+            f"Example structure (in {language}): 'Hey {child_name}! How are you today? Are you ready to learn about {concept}? "
             f"When you're ready, just let me know and we'll start!'"
         )
             
@@ -206,9 +208,27 @@ class ExplainerAgent:
         """
         system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
         
+        # COMMENTED OUT: Visual learner short story feature (keeping for future implementation)
+        # # Check if visual learner - make story MUCH shorter
+        # is_visual_learner = learning_profile and learning_profile.get("learning_style", "").lower() == "visual"
+        # 
+        # if is_visual_learner:
+        #     # VERY short story for visual learners (1 sentence only - they'll get visual exercise)
+        #     user_prompt = (
+        #         f"Great! Now let's start learning about '{concept}'. "
+        #         f"Explain '{concept}' to {child_name} (a {age_level}-year-old) using a VERY SHORT, simple story or analogy. "
+        #         f"CRITICAL: You MUST respond ENTIRELY in {language}. Every word must be in {language}, not English. "
+        #         f"IMPORTANT: Keep it to ONLY 1 sentence maximum. This child learns visually, so keep text minimal. "
+        #         f"Focus ONLY on the story/analogy - do NOT mention academic notation, formulas, or technical terms yet. "
+        #         f"Do NOT add a question - just the short story. "
+        #         f"Remember: Stay focused ONLY on '{concept}'. Do not introduce other topics."
+        #     )
+        # else:
+        #     # Normal length story for non-visual learners
         user_prompt = (
             f"Great! Now let's start learning about '{concept}'. "
             f"Explain '{concept}' to {child_name} (a {age_level}-year-old) using a fun, age-appropriate story or analogy. "
+            f"CRITICAL: You MUST respond ENTIRELY in {language}. Every word must be in {language}, not English. "
             f"Adapt your language and examples to what a {age_level}-year-old would understand and find engaging. "
             f"Keep it to 2-3 sentences. Focus ONLY on the story/analogy - do NOT mention academic notation, formulas, or technical terms yet. "
             f"After the story, give them a simple story-based question or problem to solve related to '{concept}'. "
@@ -217,7 +237,13 @@ class ExplainerAgent:
         )
         
         if grounding_context:
-            user_prompt += f"\n\nUse this specific curriculum context to inform your explanation: {grounding_context}"
+            user_prompt += (
+                f"\n\nCRITICAL - Curriculum Standards:\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught. "
+                f"You MUST teach '{concept}' according to these curriculum requirements (depth, level, approach, scope). "
+                f"This is NOT optional guidance - it's the mandatory framework you must follow. "
+                f"Stay focused on '{concept}' only, but ensure your explanation aligns with these curriculum standards:\n{grounding_context}"
+            )
             
         messages = [
             {"role": "system", "content": system_prompt},
@@ -241,6 +267,7 @@ class ExplainerAgent:
         user_prompt = (
             f"Now connect the story about '{concept}' to how we explain it academically! "
             f"Show {child_name} (a {age_level}-year-old) the proper academic way to understand '{concept}'. "
+            f"CRITICAL: You MUST respond ENTIRELY in {language}. Every word must be in {language}, not English. "
             f"This could be mathematical notation, grammar rules, scientific terms, geographical concepts, or any other academic format appropriate for '{concept}'. "
             f"Adapt the depth and terminology to what a {age_level}-year-old would understand. "
             f"Connect it directly to the story we just told about '{concept}'. "
@@ -252,7 +279,13 @@ class ExplainerAgent:
             user_prompt += f"\n\nRemember: The story we told was: {story_explanation[:200]}... Connect the academic explanation to this story."
         
         if grounding_context:
-            user_prompt += f"\n\nUse this curriculum context: {grounding_context}"
+            user_prompt += (
+                f"\n\nCRITICAL - Curriculum Standards:\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught academically. "
+                f"You MUST teach '{concept}' according to these curriculum requirements (notation, terminology, depth, level). "
+                f"This is NOT optional guidance - it's the mandatory framework you must follow. "
+                f"Stay focused on '{concept}' only, but ensure your academic explanation aligns with these curriculum standards:\n{grounding_context}"
+            )
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -272,6 +305,7 @@ class ExplainerAgent:
         # Unified prompt - exam-style quiz formatting (age-appropriate, but no story wrapper)
         user_prompt = (
             f"Create ONE exam-style question about '{concept}' for a {age_level}-year-old student. "
+            f"CRITICAL: You MUST write the question ENTIRELY in {language}. Every word must be in {language}, not English. "
             f"It must look like a real school question for this age (grade-appropriate), using correct academic language and formatting. "
             f"Do NOT use stories, roleplay, emojis, or fantasy framing. "
             f"Do NOT add encouragement or commentary—output ONLY the question text. "
@@ -306,7 +340,8 @@ class ExplainerAgent:
         
         # Add guidance for assessing understanding (works for ANY academic subject)
         system_prompt += (
-            f"\n\nIMPORTANT: You are teaching '{concept}'. You need to assess understanding in TWO ways:\n"
+            f"\n\nCRITICAL LANGUAGE REQUIREMENT: You MUST respond ENTIRELY in {language}. Every single word you write must be in {language}, not English or any other language.\n\n"
+            f"IMPORTANT: You are teaching '{concept}'. You need to assess understanding in TWO ways:\n"
             f"1. Story/Conceptual Understanding: Can they understand '{concept}' using the story/analogy?\n"
             f"2. Academic Understanding: Can they understand '{concept}' using the proper academic format (notation, terminology, rules, or structure appropriate for '{concept}')?\n\n"
             f"If the child answers a story-based question correctly but struggles with the academic way, "
@@ -358,7 +393,16 @@ class ExplainerAgent:
         
         messages = [{"role": "system", "content": system_prompt}]
         if grounding_context:
-            messages.append({"role": "system", "content": f"Curriculum Context: {grounding_context}"})
+            messages.append({
+                "role": "system", 
+                "content": (
+                    f"CRITICAL - Curriculum Standards (Mandatory Framework):\n"
+                    f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught. "
+                    f"You MUST teach '{concept}' according to these curriculum requirements. "
+                    f"This is NOT optional guidance - it's the mandatory framework you must follow. "
+                    f"Stay focused on '{concept}' only, but ensure all explanations align with these curriculum standards:\n\n{grounding_context}"
+                )
+            })
             
         messages.extend(history)
         messages.append({"role": "user", "content": child_message})
@@ -380,6 +424,7 @@ class ExplainerAgent:
         
         user_prompt = (
             f"Generate {num_questions} exam-style questions about '{concept}' for a {age_level}-year-old student named {child_name}. "
+            f"CRITICAL: You MUST write ALL questions ENTIRELY in {language}. Every word must be in {language}, not English. "
             f"Requirements:\n"
             f"- Each question must look like a real school exam question for this age (grade-appropriate).\n"
             f"- Use correct academic language and formatting.\n"
@@ -424,6 +469,71 @@ class ExplainerAgent:
                 f"How would you use '{concept}' in a real situation?"
             ][:num_questions]
     
+    # COMMENTED OUT: Visual exercise generation method (keeping for future implementation)
+    # async def generate_visual_exercise(self, concept: str, age_level: int, child_name: str = "there", learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> Optional[Dict[str, Any]]:
+    #     """
+    #     Generate a visual exercise (like ten-frames, drag-and-drop) for visual learners.
+    #     Returns JSON spec that frontend will render as an interactive component.
+    #     """
+    #     system_prompt = self._get_system_prompt(age_level, concept, learning_profile, language)
+    #     
+    #     # For now, force ten_frames for all concepts (we can expand later)
+    #     # This ensures the frontend can render it
+    #     user_prompt = (
+    #         f"Create a 'ten_frames' visual exercise about '{concept}' for a {age_level}-year-old student named {child_name}. "
+    #         f"CRITICAL: You MUST write ALL instructions ENTIRELY in {language}. Every word must be in {language}, not English. "
+    #         f"IMPORTANT: You MUST use exercise_type 'ten_frames' only. "
+    #         f"Return ONLY a JSON object with this EXACT structure:\n"
+    #         f'{{\n'
+    #         f'  "exercise_type": "ten_frames",\n'
+    #         f'  "instruction": "Brief instruction in {language} (max 15 words)",\n'
+    #         f'  "data": {{\n'
+    #         f'    "frames": [\n'
+    #         f'      {{"red": 5, "white": 5, "equation": "5 + 5 = 10", "complete": true}},\n'
+    #         f'      {{"red": 5, "white": 6, "equation": "5 + 6 = ?", "complete": false}},\n'
+    #         f'      {{"red": 3, "white": 4, "equation": "3 + 4 = ?", "complete": false}}\n'
+    #         f'    ]\n'
+    #         f'  }}\n'
+    #         f'}}\n\n'
+    #         f"Create 2-3 frames with simple addition equations related to '{concept}' if possible, or use general addition practice. "
+    #         f"Each frame should have 'red' (filled circles), 'white' (empty circles), 'equation' (string), and 'complete' (boolean). "
+    #         f"Remember: Stay focused ONLY on '{concept}' if creating concept-related equations, otherwise use simple addition."
+    #     )
+    #     
+    #     messages = [
+    #         {"role": "system", "content": system_prompt},
+    #         {"role": "user", "content": user_prompt}
+    #     ]
+    #     
+    #     try:
+    #         import json
+    #         response_text = await openai_service.get_chat_completion(
+    #             messages,
+    #             temperature=0.7,
+    #             response_format={"type": "json_object"}
+    #         )
+    #         data = json.loads(response_text)
+    #         
+    #         # Validate structure
+    #         if "exercise_type" in data and "instruction" in data and "data" in data:
+    #             return data
+    #         else:
+    #             logger.warning(f"Invalid visual exercise format, falling back to ten_frames")
+    #             # Fallback: simple ten-frames exercise
+    #             return {
+    #                 "exercise_type": "ten_frames",
+    #                 "instruction": f"Complete the equations" if language == "English" else "Ergänze die Gleichungen",
+    #                 "data": {
+    #                     "frames": [
+    #                         {"red": 5, "white": 5, "equation": "5 + 5 = 10", "complete": True},
+    #                         {"red": 5, "white": 6, "equation": "5 + 6 = ?", "complete": False}
+    #                     ]
+    #                 }
+    #             }
+    #     except Exception as e:
+    #         logger.error(f"Error generating visual exercise: {e}")
+    #         return None
+    
     async def evaluate_quiz_answer(self, concept: str, age_level: int, question: str, answer: str, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> Dict[str, Any]:
         """
         Evaluate a quiz answer and provide feedback.
@@ -435,11 +545,12 @@ class ExplainerAgent:
             f"Evaluate this answer to a quiz question about '{concept}':\n\n"
             f"Question: {question}\n"
             f"Answer: {answer}\n\n"
+            f"CRITICAL: Your feedback MUST be written ENTIRELY in {language}. Every word must be in {language}, not English. "
             f"Provide:\n"
             f"- Whether the answer is correct (or partially correct)\n"
-            f"- Encouraging feedback\n"
+            f"- Encouraging feedback (in {language})\n"
             f"- A score from 0-100\n\n"
-            f"Return ONLY a JSON object with keys: 'correct' (boolean), 'feedback' (string), 'score' (integer 0-100). "
+            f"Return ONLY a JSON object with keys: 'correct' (boolean), 'feedback' (string in {language}), 'score' (integer 0-100). "
             f"Be encouraging and constructive. Remember: The question is about '{concept}' only."
         )
         

@@ -112,6 +112,23 @@ const userSlice = createSlice({
         state.loginError = 'Invalid Learning Code. Please check with your parent!';
       }
     },
+    setCurrentChildFromSession: (state, action: PayloadAction<{ child_name: string; learning_language: string; learning_code: string; age_level: number; id?: string }>) => {
+      // Set currentChild when session starts (child logs in via learning code)
+      // This ensures learning_language is available immediately
+      const sessionData = action.payload;
+      console.log(`🌍 [USER SLICE] Setting currentChild from session - language: ${sessionData.learning_language}`);
+      state.currentChild = {
+        id: sessionData.id || '',
+        name: sessionData.child_name,
+        age_level: sessionData.age_level as 6 | 8 | 10,
+        avatar: sessionData.child_name === 'Leo' ? '🦁' : sessionData.child_name === 'Mia' ? '🐱' : '👤',
+        learningCode: sessionData.learning_code,
+        learning_language: sessionData.learning_language,
+      };
+      state.role = 'child';
+      state.isAuthenticated = true;
+      state.loginError = null;
+    },
     logout: (state) => {
       state.role = null;
       state.currentChild = null;
@@ -207,5 +224,5 @@ const userSlice = createSlice({
   },
 });
 
-export const { setRole, loginWithCode, logout } = userSlice.actions;
+export const { setRole, loginWithCode, logout, setCurrentChildFromSession } = userSlice.actions;
 export default userSlice.reducer;
