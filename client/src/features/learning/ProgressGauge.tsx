@@ -46,7 +46,7 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({
   };
 
   const getStatusText = () => {
-    if (isEvaluationMode && masteryPercent !== null) {
+    if (isEvaluationMode && masteryPercent !== null && masteryPercent !== undefined) {
       if (masteryPercent >= 80) return t('child.concept_mastered');
       if (masteryPercent >= 50) return t('child.building_understanding');
       return t('child.initial_discovery');

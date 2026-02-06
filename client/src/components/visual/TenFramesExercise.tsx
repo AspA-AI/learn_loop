@@ -38,7 +38,7 @@ const TenFramesExercise: React.FC<TenFramesExerciseProps> = ({ frames, instructi
     }
   };
 
-  const renderTenFrame = (red: number, white: number, frameIndex: number) => {
+  const renderTenFrame = (red: number, white: number, _frameIndex: number) => {
     const total = red + white;
     const circles = [];
     

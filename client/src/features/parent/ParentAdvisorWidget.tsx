@@ -120,7 +120,11 @@ const ParentAdvisorWidget: React.FC = () => {
         try {
           const res = await learningApi.getAdvisorChat(selectedConversationId);
           setChatId(res.chat.id);
-          setMessages((res.messages || []).map((m) => ({ role: m.role, content: m.content, created_at: m.created_at })));
+          setMessages((res.messages || []).map((m) => ({ 
+            role: m.role as 'user' | 'assistant', 
+            content: m.content, 
+            created_at: m.created_at 
+          })));
           setFocusSessionId(res.chat.focus_session_id || null);
         } catch {
           setChatId(null);
