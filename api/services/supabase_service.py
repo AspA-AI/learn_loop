@@ -155,6 +155,32 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Error updating child topic: {e}")
 
+    def update_child_curriculum_coverage(self, child_id: str, curriculum_coverage: Dict[str, Any]) -> bool:
+        """
+        Persist aggregated curriculum coverage on the child record.
+        This is meant to be token-efficient for the advisor agent (one snapshot per child),
+        rather than forcing the advisor to scan many sessions.
+        """
+        if not self.client:
+            return False
+        try:
+            self.client.table("children").update({"curriculum_coverage": curriculum_coverage}).eq("id", child_id).execute()
+            return True
+        except APIError as e:
+            # If the column doesn't exist yet (migration not run), don't fail the whole request.
+            try:
+                payload = e.args[0] if e.args else None
+                if isinstance(payload, dict) and payload.get("code") == "PGRST204":
+                    logger.warning("children.curriculum_coverage column missing in schema cache. Run migration add_child_curriculum_coverage.sql.")
+                    return False
+            except Exception:
+                pass
+            logger.error(f"Error updating child curriculum coverage: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error updating child curriculum coverage: {e}")
+            return False
+
     # --- Topic Management ---
 
     def get_child_subjects(self, child_id: str) -> List[str]:

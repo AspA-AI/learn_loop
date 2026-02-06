@@ -44,6 +44,9 @@ interface LearningState {
   conversationPhase: string | null; // "greeting", "story_explanation", "story_quiz", "academic_explanation", "academic_quiz", "ongoing"
   quiz: QuizState;
   sessionStartTime: number | null; // Timestamp when session started (for duration tracking)
+  evaluationReport: {
+    mastery_percent: number | null;
+  } | null; // Evaluation results shown to child after session ends
 }
 
 const initialState: LearningState = {
@@ -62,6 +65,7 @@ const initialState: LearningState = {
   isEnding: false,
   conversationPhase: null,
   sessionStartTime: null,
+  evaluationReport: null,
   quiz: {
     active: false,
     question: null,
@@ -315,9 +319,17 @@ const learningSlice = createSlice({
         state.isEnding = true;
         state.error = null;
       })
-      .addCase(endSession.fulfilled, (state) => {
+      .addCase(endSession.fulfilled, (state, action) => {
         state.isEnding = false;
-        // Session ended - could redirect or show success message
+        // Extract evaluation results for child display
+        const evaluationReport = action.payload?.evaluation_report;
+        if (evaluationReport) {
+          const masteryPercent = evaluationReport.mastery_percent ?? null;
+          
+          state.evaluationReport = {
+            mastery_percent: masteryPercent,
+          };
+        }
       })
       .addCase(endSession.rejected, (state, action) => {
         state.isEnding = false;

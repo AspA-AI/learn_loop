@@ -133,5 +133,150 @@ class EvaluatorAgent:
                 "summary": f"The session covered {concept}. The student engaged with the material. More practice is recommended.",
                 "reasoning": "Fallback report due to internal error."
             }
-    
+
+    async def evaluate_answers(
+        self,
+        concept: str,
+        interactions: List[Dict[str, Any]],
+        language: str = "English",
+    ) -> Dict[str, Any]:
+        """
+        End-of-session, evidence-based grading of individual question/answer pairs.
+        Returns JSON with per-question scores, without computing an overall percentage.
+        Shape:
+        {
+          "questions": [
+            {
+              "id": int,
+              "question": str,
+              "child_answer": str,
+              "answer_relevance": int (0-100),
+              "answer_correctness": int (0-100),
+              "notes": str
+            }, ...
+          ],
+          "topic_discussed": bool,
+          "notes": str
+        }
+        """
+        try:
+            # Bound history length for token efficiency
+            convo_lines: List[str] = []
+            for i in interactions[-30:]:
+                role = "Child" if i.get("role") == "user" else "AI"
+                text = str(i.get("content") or "").strip()
+                if text:
+                    convo_lines.append(f"{role}: {text}")
+            history_text = "\n".join(convo_lines)
+
+            system = (
+                "You are an educational evaluator. Your task is to grade how well the child answered each "
+                "concept-related question in the conversation.\n\n"
+                "CRITICAL RULE: ONLY evaluate questions that have answers. Skip any questions where:\n"
+                "- The child did not respond\n"
+                "- The child's response is empty or just whitespace\n"
+                "- The child's response is clearly not an answer (e.g., 'I don't know', 'skip', 'pass')\n"
+                "- The conversation moved on without the child answering\n\n"
+                "Rules:\n"
+                "- First, identify the main concept the AI is teaching (it is provided explicitly).\n"
+                "- Then, scan the conversation for AI QUESTIONS about that concept and the child's direct replies.\n"
+                "- ONLY consider question/answer pairs where:\n"
+                "  1. The AI asked a question about the concept\n"
+                "  2. The child provided an actual answer (not empty, not skipped, not 'I don't know')\n"
+                "  3. The question/answer pair is truly about the concept (ignore greetings, 'are you ready?', chit-chat)\n"
+                "- DO NOT create entries for questions that were not answered - skip them entirely.\n"
+                "- For each valid answered pair, create one entry with:\n"
+                "  * id: sequential integer starting from 1\n"
+                "  * question: the AI's question (shortened if very long)\n"
+                "  * child_answer: the child's answer text\n"
+                "  * answer_relevance: 0-100, how much the child's answer actually addresses and engages with the question about the concept.\n"
+                "    CRITICAL: If the answer is completely wrong, nonsensical, or shows no understanding (e.g., answering '0' to all addition questions), "
+                "    the relevance should be LOW (0-30), not high. High relevance (70-100) means the child is meaningfully engaging with the question, "
+                "    even if partially incorrect. Low relevance means the answer doesn't meaningfully address what was asked.\n"
+                "  * answer_correctness: 0-100, how mathematically/academically correct the answer is for the concept.\n"
+                "    If the answer is completely wrong, this should be 0-20. If partially correct, 30-70. If fully correct, 80-100.\n"
+                "  * notes: very short justification for the scores\n"
+                "- Use the full 0-100 range, but be consistent: 100 = fully relevant/correct, 0 = completely off/nonsensical.\n"
+                "- IMPORTANT: answer_relevance and answer_correctness should generally align. If correctness is very low (0-20), "
+                "    relevance should also be low (0-40) unless the child is clearly trying to engage but misunderstanding.\n"
+                "- topic_discussed is true if there is at least one question/answer pair with relevance >= 50, otherwise false.\n"
+                "- Limit to at most 12 question entries to keep the JSON small.\n"
+                f"- All free-text fields (notes) MUST be written entirely in {language}.\n\n"
+                "Respond ONLY as JSON with keys: questions (array), topic_discussed (bool), notes (string)."
+            )
+
+            user = (
+                f"Concept: {concept}\n"
+                f"Conversation history (AI and child):\n{history_text}\n\n"
+                "Extract and grade the concept-related question/answer pairs as described."
+            )
+
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ]
+
+            response_text = await openai_service.get_chat_completion(
+                messages,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(response_text or "{}")
+
+            questions = data.get("questions", [])
+            if not isinstance(questions, list):
+                questions = []
+
+            cleaned_questions: List[Dict[str, Any]] = []
+            for idx, q in enumerate(questions, start=1):
+                if not isinstance(q, dict):
+                    continue
+                question_text = str(q.get("question") or "").strip()
+                answer_text = str(q.get("child_answer") or "").strip()
+                
+                # Skip if question or answer is missing
+                if not question_text or not answer_text:
+                    continue
+                
+                # Skip if answer indicates no answer was given
+                answer_lower = answer_text.lower().strip()
+                skip_indicators = ["i don't know", "i don't know.", "don't know", "skip", "pass", "no answer", 
+                                  "n/a", "na", "none", "nothing", "idk"]
+                if any(indicator in answer_lower for indicator in skip_indicators):
+                    continue
+                try:
+                    rel = float(q.get("answer_relevance", 0) or 0)
+                except Exception:
+                    rel = 0.0
+                try:
+                    corr = float(q.get("answer_correctness", 0) or 0)
+                except Exception:
+                    corr = 0.0
+                notes = str(q.get("notes") or "").strip()
+                cleaned_questions.append(
+                    {
+                        "id": idx,
+                        "question": question_text,
+                        "child_answer": answer_text,
+                        "answer_relevance": max(0, min(100, int(round(rel)))),
+                        "answer_correctness": max(0, min(100, int(round(corr)))),
+                        "notes": notes,
+                    }
+                )
+            cleaned_questions = cleaned_questions[:12]
+
+            topic_discussed = bool(
+                any(q.get("answer_relevance", 0) >= 50 for q in cleaned_questions)
+            )
+            notes = str(data.get("notes") or "").strip()
+
+            return {
+                "questions": cleaned_questions,
+                "topic_discussed": topic_discussed,
+                "notes": notes,
+            }
+        except Exception as e:
+            logger.warning(f"Error in evaluate_answers: {e}", exc_info=True)
+            return {"questions": [], "topic_discussed": False, "notes": ""}
+
 evaluator_agent = EvaluatorAgent()

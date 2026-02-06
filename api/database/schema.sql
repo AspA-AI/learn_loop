@@ -41,6 +41,7 @@ CREATE TABLE public.children (
     attention_span TEXT, -- e.g., 'short', 'medium', 'long'
     strengths TEXT[], -- Array of academic strengths
     learning_language TEXT DEFAULT 'English', -- One of: English, German, French, Portuguese, Spanish, Italian, Turkish
+    curriculum_coverage JSONB, -- Aggregated curriculum coverage across sessions (token-efficient advisor context)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

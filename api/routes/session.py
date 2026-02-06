@@ -260,42 +260,12 @@ async def interact(
         else:
             conversation_phase = "ongoing"
         
-        # 3. Evaluate child's understanding
-        logger.info(f"🔍 [EVALUATION] Starting assessment for session: {session_id}")
-        logger.info(f"📤 [EVALUATION] Concept: '{session['concept']}'")
-        logger.info(f"📤 [EVALUATION] AI Last Message: \"{last_explanation}{'...' if len(last_explanation) > 100 else ''}\"")
-        logger.info(f"📥 [EVALUATION] Child Response: \"{child_message}\"")
-
-        state, reasoning, hint, performance_metrics = await evaluator_agent.evaluate_understanding(
-            concept=session["concept"],
-            last_explanation=last_explanation,
-            child_message=child_message,
-            language=learning_language
-        )
-
-        logger.info(f"✅ [EVALUATION] Result: {state.value.upper()}")
-        logger.info(f"💡 [EVALUATION] Reasoning: {reasoning}")
+        # NOTE: Real-time evaluation has been removed. Evaluation now happens only at session end.
+        # The explainer agent will adapt based on conversation flow without explicit understanding_state.
         
         # Initialize quiz option and visual exercise
         can_take_quiz = False
         visual_exercise = None  # Will be set if learning style is visual
-        
-        # Count consecutive confused states
-        recent_states = [i.get("understanding_state") for i in history_data[-5:] if i.get("understanding_state")]
-        confusion_attempts = 0
-        if state == UnderstandingState.CONFUSED:
-            # Count how many of the last few interactions were confused
-            confusion_attempts = sum(1 for s in recent_states if s == "confused") + 1  # +1 for current
-        elif state == UnderstandingState.UNDERSTOOD:
-            # Reset confusion count if they understood
-            confusion_attempts = 0
-        elif state == UnderstandingState.PROCEDURAL:
-            # If procedural, keep the previous confusion count (don't increment, don't reset)
-            previous_states = [s for s in recent_states if s != "procedural"]
-            if previous_states and previous_states[-1] == "confused":
-                confusion_attempts = sum(1 for s in recent_states if s == "confused")
-            else:
-                confusion_attempts = 0
         
         # 4. Get adaptive response from Explainer Agent (step-by-step for math)
         # Use stored document context from session start (avoids repeated RAG calls)
@@ -373,6 +343,7 @@ async def interact(
                 concept=session["concept"],
                 age_level=session["age_level"],
                 child_name="there",
+                grounding_context=grounding_context,
                 learning_profile=learning_profile,
                 language=learning_language
             )
@@ -410,49 +381,22 @@ async def interact(
             conversation_phase = "academic_quiz"
         else:
             # Normal adaptive response for ongoing conversation (including academic_quiz phase and beyond)
+            # NOTE: No understanding_state passed - evaluation happens only at session end
             agent_response, can_end_session, should_offer_end = await explainer_agent.get_adaptive_response(
                 concept=session["concept"],
                 age_level=session["age_level"],
                 child_message=child_message,
                 history=history,
                 grounding_context=grounding_context,
-                understanding_state=state.value,
-                confusion_attempts=confusion_attempts,
+                understanding_state=None,  # No real-time evaluation
+                confusion_attempts=0,  # No confusion tracking during conversation
                 learning_profile=learning_profile,
                 language=learning_language
             )
         
-        # Only allow ending session if there's REAL evidence of understanding
-        # Require at least 2 consecutive "understood" states with substantive responses
-        if state == UnderstandingState.UNDERSTOOD:
-            # Check if child provided substantive evidence (not just brief agreeable response)
-            is_substantive = (
-                len(child_message.split()) > 5 or  # More than just "OK" or "got it"
-                any(word in child_message.lower() for word in ["because", "example", "like", "when", "if", "think"]) or
-                "?" in child_message  # Asked a question
-            )
-            
-            logger.info(f"📊 [DECISION] Substantive check: {is_substantive} (Message: \"{child_message}\")")
-            
-            if is_substantive:
-                # Check last 2-3 interactions for consistent understanding (including current)
-                recent_understood = [s for s in recent_states if s == "understood"]
-                logger.info(f"📊 [DECISION] Recent understood states: {len(recent_understood)} in last 5 turns")
-                
-                # Current state is "understood", so we need at least 1 more in recent history
-                if len(recent_understood) >= 1:  # Current + at least 1 previous = 2 total
-                    can_end_session = True
-                    can_take_quiz = True  # Offer quiz option when they've mastered it
-                    logger.info("🎯 [DECISION] MASTERY REACHED: Enabling Quiz and End Session buttons")
-                    # Add end session and quiz suggestion to the response
-                    agent_response += "\n\n🎉 You've really mastered this! You can take a practice quiz to reinforce what you learned, or end this session and I'll create a summary of everything you learned today."
-        
-        # If child is stuck after multiple attempts, offer to end session
-        if should_offer_end:
-            logger.info("⚠️ [DECISION] Confusion threshold reached: Offering to end session")
-            agent_response += "\n\n💙 Sometimes concepts take time to understand, and that's perfectly okay! If you'd like, we can end this session here. Your parent will see a summary of what we worked on today, and you can always come back to try again later."
-            can_end_session = True  # Allow them to end even if confused
-
+        # NOTE: We no longer auto-enable can_end_session or calculate mastery during conversation.
+        # Ending the session is now an explicit action from the frontend (parent/child clicks end).
+        # Full evaluation with mastery calculation happens only when end_session is called.
         logger.info(f"🏁 [DECISION] Final flags -> can_end_session: {can_end_session}, can_take_quiz: {can_take_quiz}")
         
         # COMMENTED OUT: Visual exercise feature for ongoing phase (keeping for future implementation)
@@ -472,15 +416,9 @@ async def interact(
         #         if visual_exercise:
         #             agent_response += f"\n\n{visual_exercise.get('instruction', 'Try this visual exercise!')}"
         
-        # 5. Save interactions to Supabase
+        # 5. Save interactions to Supabase (no understanding_state stored during conversation)
         supabase_service.add_interaction(session_id, "user", child_message)
-        supabase_service.add_interaction(session_id, "assistant", agent_response, state)
-        
-        # Store performance metrics if available (for mathematical concepts)
-        if performance_metrics:
-            # Store in a temporary way - we'll aggregate this in the evaluation report
-            # For now, we can add it to the interaction metadata or aggregate at session end
-            pass  # Will be aggregated in end_session
+        supabase_service.add_interaction(session_id, "assistant", agent_response, None)  # No real-time evaluation
         
         # Check if quiz is active
         quiz_active = session_id in quiz_states
@@ -500,8 +438,8 @@ async def interact(
         return InteractionResponse(
             agent_response=agent_response,
             transcribed_text=transcribed_text,
-            understanding_state=state,
-            follow_up_hint=hint,
+            understanding_state=UnderstandingState.PROCEDURAL,  # No real-time evaluation - default to procedural
+            follow_up_hint=None,  # No real-time evaluation - no hints during conversation
             can_end_session=can_end_session,
             can_take_quiz=can_take_quiz,
             conversation_phase=conversation_phase,
@@ -609,22 +547,105 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
         
         # 4. Generate evaluation report using InsightAgent
         report = await insight_agent.generate_parent_report(sessions_data)
+
+        # 4b. Update child's aggregated curriculum coverage (token-efficient for advisor agent)
+        try:
+            child_id_str = str(session["child_id"])
+            # Rebuild the same grounding context style used at session start
+            curriculum_files = supabase_service.get_child_curriculum_files(child_id_str)
+            curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
+            document_context = weaviate_service.retrieve_all_topic_chunks(child_id=child_id_str, topic=session["concept"])
+
+            context_parts = []
+            if document_context:
+                context_parts.append(f"Reference Documents for Topic '{session['concept']}':\n{document_context}")
+            if curriculum_content:
+                context_parts.append(f"Child's Curriculum Materials:\n{curriculum_content}")
+            grounding_context = "\n\n---\n\n".join(context_parts) if context_parts else None
+
+            covered_items: List[str] = []
+            if grounding_context:
+                covered_items = await insight_agent.extract_session_curriculum_coverage(
+                    concept=session["concept"],
+                    interactions=interactions,
+                    grounding_context=grounding_context,
+                )
+
+            if child and isinstance(child, dict):
+                existing = child.get("curriculum_coverage") or {}
+            else:
+                existing = {}
+
+            if not isinstance(existing, dict):
+                existing = {}
+
+            # Stored structure:
+            # {
+            #   "covered_items": ["..."],
+            #   "last_updated": "ISO",
+            #   "by_concept": { "Addition": ["..."] }
+            # }
+            all_items = existing.get("covered_items") if isinstance(existing.get("covered_items"), list) else []
+            by_concept = existing.get("by_concept") if isinstance(existing.get("by_concept"), dict) else {}
+
+            # Merge + dedupe (preserve order)
+            merged_all: List[str] = []
+            for it in (all_items + (covered_items or [])):
+                s = str(it or "").strip()
+                if s and s not in merged_all:
+                    merged_all.append(s)
+
+            if covered_items:
+                concept_key = str(session["concept"])
+                prev_concept_items = by_concept.get(concept_key)
+                if not isinstance(prev_concept_items, list):
+                    prev_concept_items = []
+                merged_concept: List[str] = []
+                for it in (prev_concept_items + covered_items):
+                    s = str(it or "").strip()
+                    if s and s not in merged_concept:
+                        merged_concept.append(s)
+                by_concept[concept_key] = merged_concept
+
+            new_snapshot = {
+                "covered_items": merged_all,
+                "by_concept": by_concept,
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+
+            supabase_service.update_child_curriculum_coverage(child_id_str, new_snapshot)
+        except Exception as e:
+            logger.warning(f"Failed to update child curriculum coverage snapshot: {e}")
         
-        # 5. Calculate mastery stats - EXCLUDE procedural responses (they're not about the topic)
-        # Only count states that are actually about understanding the concept
-        states = [i.get("understanding_state") for i in interactions 
-                 if i.get("understanding_state") and i.get("understanding_state") != "procedural"]
-        total = len(states)
-        understood = states.count("understood") if total > 0 else 0
-        partial = states.count("partial") if total > 0 else 0
-        confused = states.count("confused") if total > 0 else 0
-        
-        # Base mastery from understanding states (weighted: understood=1.0, partial=0.6, confused=0.2)
-        base_mastery = 0.0
-        if total > 0:
-            base_mastery = ((understood * 1.0 + partial * 0.6 + confused * 0.2) / total) * 100
-        
-        # Check for quiz performance and include it in mastery calculation
+        # 5. End-of-session grading: compute mastery from per-question answer scores (not by LLM)
+        # 5a. Ask EvaluatorAgent to grade individual question/answer pairs
+        answer_evaluation = await evaluator_agent.evaluate_answers(
+            concept=session["concept"],
+            interactions=interactions,
+            language=learning_language,
+        )
+        questions_info = answer_evaluation.get("questions") or []
+
+        # 5b. Aggregate correctness and relevance into a numeric mastery score
+        corr_scores: List[float] = []
+        rel_scores: List[float] = []
+        for q in questions_info:
+            try:
+                c = float(q.get("answer_correctness", 0) or 0)
+                corr_scores.append(max(0.0, min(100.0, c)))
+            except Exception:
+                continue
+        for q in questions_info:
+            try:
+                r = float(q.get("answer_relevance", 0) or 0)
+                rel_scores.append(max(0.0, min(100.0, r)))
+            except Exception:
+                continue
+
+        avg_corr = sum(corr_scores) / len(corr_scores) if corr_scores else None
+        avg_rel = sum(rel_scores) / len(rel_scores) if rel_scores else None
+
+        # Check for quiz performance (if any) so we can combine it with answer-based mastery
         quiz_percentage = None
         if session_id in quiz_states:
             quiz_state = quiz_states[session_id]
@@ -634,12 +655,47 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
                 max_quiz_score = len(quiz_scores) * 100
                 quiz_percentage = (total_quiz_score / max_quiz_score * 100) if max_quiz_score > 0 else 0
         
-        # If quiz was taken, combine base mastery (40%) with quiz performance (60%)
-        # If no quiz, use base mastery only
-        if quiz_percentage is not None:
-            mastery_percent = int((base_mastery * 0.4 + quiz_percentage * 0.6))
+        # 5c. Compute mastery_percent using a deterministic algorithm (not by LLM)
+        if avg_corr is not None:
+            # Start from answer correctness average
+            base_mastery_from_answers = avg_corr
+
+            # If the child is basically not addressing the questions (very low relevance),
+            # clamp to a conservative band (around 35%) instead of extreme 0%.
+            if avg_rel is not None and avg_rel < 30:
+                base_mastery_from_answers = 35.0
+
+            if quiz_percentage is not None:
+                mastery_percent = int(
+                    base_mastery_from_answers * 0.4 + quiz_percentage * 0.6
+                )
+            else:
+                mastery_percent = int(base_mastery_from_answers)
         else:
-            mastery_percent = int(base_mastery)
+            # Fallback: no clear Q/A pairs detected; fall back to previous understanding-state heuristic.
+            states = [
+                i.get("understanding_state")
+                for i in interactions
+                if i.get("understanding_state")
+                and i.get("understanding_state") != "procedural"
+            ]
+            total = len(states)
+            understood = states.count("understood") if total > 0 else 0
+            partial = states.count("partial") if total > 0 else 0
+            confused = states.count("confused") if total > 0 else 0
+
+            base_mastery = 0.0
+            if total > 0:
+                base_mastery = (
+                    (understood * 1.0 + partial * 0.6 + confused * 0.2) / total
+                ) * 100
+
+            if quiz_percentage is not None:
+                mastery_percent = int(
+                    base_mastery * 0.4 + quiz_percentage * 0.6
+                )
+            else:
+                mastery_percent = int(base_mastery)
         
         # Ensure mastery is between 0 and 100
         mastery_percent = max(0, min(100, mastery_percent))
@@ -651,9 +707,8 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
             "concept": session["concept"],
             "mastery_percent": mastery_percent,
             "total_interactions": len(interactions),
-            "understood_count": understood,
-            "partial_count": partial,
-            "confused_count": states.count("confused") if total > 0 else 0,
+            # understanding-state counts are still useful to inspect, but no longer drive mastery_percent directly
+            "answer_evaluation": answer_evaluation,
             "metrics": academic_report.get("metrics", {}),
             "academic_summary": academic_report.get("summary", ""),
             "ended_at": datetime.now(timezone.utc).isoformat()
@@ -713,11 +768,15 @@ async def start_quiz(session_id: str, num_questions: int = Query(5, ge=3, le=10)
         
         # 2. Generate quiz questions
         learning_language = child.get("learning_language", "English")
+        grounding_context = session_contexts.get(session_id)
+        if not grounding_context:
+            grounding_context = weaviate_service.retrieve_curriculum_context(session["concept"], session["age_level"])
         questions = await explainer_agent.generate_quiz_questions(
             concept=session["concept"],
             age_level=session["age_level"],
             child_name=child.get("name", "there"),
             num_questions=min(num_questions, 10),  # Cap at 10 questions
+            grounding_context=grounding_context,
             learning_profile=learning_profile,
             language=learning_language
         )

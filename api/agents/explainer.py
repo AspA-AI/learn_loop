@@ -238,11 +238,17 @@ class ExplainerAgent:
         
         if grounding_context:
             user_prompt += (
-                f"\n\nCRITICAL - Curriculum Standards:\n"
-                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught. "
-                f"You MUST teach '{concept}' according to these curriculum requirements (depth, level, approach, scope). "
-                f"This is NOT optional guidance - it's the mandatory framework you must follow. "
-                f"Stay focused on '{concept}' only, but ensure your explanation aligns with these curriculum standards:\n{grounding_context}"
+                f"\n\nCRITICAL - Curriculum Standards (Mandatory Framework):\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' must be taught.\n\n"
+                f"MANDATORY FIRST STEP (do this BEFORE writing your story/explanation/question):\n"
+                f"1) Scan the curriculum text for '{concept}' and closely related required sub-skills.\n"
+                f"2) Extract the REQUIRED learning objectives / subtopics / skills for this age/grade (mentally; do NOT output the list).\n"
+                f"3) Teach ONLY '{concept}', but ensure your story + question cover those required objectives in an age-appropriate way.\n"
+                f"4) If the curriculum implies a specific method/sequence/notation level, follow it.\n\n"
+                f"IMPORTANT PRESENTATION RULE:\n"
+                f"- Do NOT mention the words 'curriculum', 'standard', 'framework', 'requirements', or similar to the child.\n"
+                f"- Just teach naturally as if you planned the lesson yourself.\n\n"
+                f"Curriculum text:\n{grounding_context}"
             )
             
         messages = [
@@ -280,11 +286,16 @@ class ExplainerAgent:
         
         if grounding_context:
             user_prompt += (
-                f"\n\nCRITICAL - Curriculum Standards:\n"
-                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught academically. "
-                f"You MUST teach '{concept}' according to these curriculum requirements (notation, terminology, depth, level). "
-                f"This is NOT optional guidance - it's the mandatory framework you must follow. "
-                f"Stay focused on '{concept}' only, but ensure your academic explanation aligns with these curriculum standards:\n{grounding_context}"
+                f"\n\nCRITICAL - Curriculum Standards (Mandatory Framework):\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' must be taught academically.\n\n"
+                f"MANDATORY FIRST STEP (do this BEFORE writing your academic explanation):\n"
+                f"1) Scan the curriculum text for '{concept}' and the required academic form (notation/terminology/rules/structure).\n"
+                f"2) Extract the REQUIRED academic expectations for this age/grade (mentally; do NOT output the list).\n"
+                f"3) Ensure your academic explanation uses the correct level of notation/terminology and covers the required scope.\n\n"
+                f"IMPORTANT PRESENTATION RULE:\n"
+                f"- Do NOT mention the words 'curriculum', 'standard', 'framework', 'requirements', or similar to the child.\n"
+                f"- Just teach naturally.\n\n"
+                f"Curriculum text:\n{grounding_context}"
             )
         
         messages = [
@@ -294,7 +305,7 @@ class ExplainerAgent:
         
         return await openai_service.get_chat_completion(messages, temperature=0.7)
     
-    async def get_academic_quiz(self, concept: str, age_level: int, child_name: str = "there", learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
+    async def get_academic_quiz(self, concept: str, age_level: int, child_name: str = "there", grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> str:
         """
         Step 3: Quiz them on academic notation/terminology (works for ANY academic subject)
         Structure: Give problem/question using academic notation/terminology
@@ -311,6 +322,17 @@ class ExplainerAgent:
             f"Do NOT add encouragement or commentary—output ONLY the question text. "
             f"Remember: The question MUST be about '{concept}' only. Do not introduce other topics or related concepts."
         )
+
+        if grounding_context:
+            user_prompt += (
+                f"\n\nCRITICAL - Curriculum Standards (Mandatory Framework):\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines what MUST be covered for '{concept}'.\n"
+                f"MANDATORY FIRST STEP:\n"
+                f"- Scan the curriculum text, identify required sub-skills/objectives for '{concept}', then write ONE question that targets those requirements.\n"
+                f"IMPORTANT:\n"
+                f"- Do NOT mention curriculum/standards to the child; output only the question.\n\n"
+                f"Curriculum text:\n{grounding_context}"
+            )
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -397,10 +419,14 @@ class ExplainerAgent:
                 "role": "system", 
                 "content": (
                     f"CRITICAL - Curriculum Standards (Mandatory Framework):\n"
-                    f"The curriculum below is the AUTHORITATIVE educational standard that defines how '{concept}' should be taught. "
-                    f"You MUST teach '{concept}' according to these curriculum requirements. "
-                    f"This is NOT optional guidance - it's the mandatory framework you must follow. "
-                    f"Stay focused on '{concept}' only, but ensure all explanations align with these curriculum standards:\n\n{grounding_context}"
+                    f"The curriculum below is the AUTHORITATIVE educational standard that defines what MUST be taught for '{concept}'.\n\n"
+                    f"MANDATORY FIRST STEP (before writing your next message):\n"
+                    f"1) Scan the curriculum text for '{concept}' and required sub-skills/objectives.\n"
+                    f"2) Decide what to teach/ask NEXT so the session aligns with those requirements.\n"
+                    f"3) Teach naturally and age-appropriately.\n\n"
+                    f"IMPORTANT PRESENTATION RULE:\n"
+                    f"- Do NOT mention the words 'curriculum', 'standard', 'framework', 'requirements', or similar to the child.\n\n"
+                    f"Curriculum text:\n{grounding_context}"
                 )
             })
             
@@ -415,7 +441,7 @@ class ExplainerAgent:
         
         return response, False, should_offer_end  # can_end_session determined by session route
     
-    async def generate_quiz_questions(self, concept: str, age_level: int, child_name: str = "there", num_questions: int = 5, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> List[str]:
+    async def generate_quiz_questions(self, concept: str, age_level: int, child_name: str = "there", num_questions: int = 5, grounding_context: Optional[str] = None, learning_profile: Optional[Dict[str, Any]] = None, language: str = "English") -> List[str]:
         """
         Generate a set of practice quiz questions for the concept.
         Returns a list of questions that test understanding of the concept.
@@ -435,6 +461,17 @@ class ExplainerAgent:
             f"- All questions MUST be about '{concept}' only.\n\n"
             f"Return ONLY a JSON object with this format: {{\"questions\": [\"...\", \"...\", ...]}}"
         )
+
+        if grounding_context:
+            user_prompt += (
+                f"\n\nCRITICAL - Curriculum Standards (Mandatory Framework):\n"
+                f"The curriculum below is the AUTHORITATIVE educational standard that defines what MUST be covered for '{concept}'.\n"
+                f"MANDATORY FIRST STEP:\n"
+                f"- Scan the curriculum text and ensure the set of questions collectively covers the required sub-skills/objectives.\n"
+                f"IMPORTANT:\n"
+                f"- Do NOT mention curriculum/standards in the output.\n\n"
+                f"Curriculum text:\n{grounding_context}"
+            )
         
         messages = [
             {"role": "system", "content": system_prompt},

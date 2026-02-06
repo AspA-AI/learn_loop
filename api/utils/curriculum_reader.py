@@ -31,11 +31,31 @@ def read_curriculum_files(curriculum_files: List[Dict[str, Any]]) -> Optional[st
             continue
         
         try:
-            # Read file from local storage
-            file_path = Path(storage_path)
-            logger.info(f"📖 [CURRICULUM READER] Checking if file exists: {file_path} (absolute: {file_path.absolute()})")
-            if not file_path.exists():
-                logger.warning(f"⚠️ [CURRICULUM READER] Curriculum file not found: {file_path}")
+            # Read file from local storage.
+            # storage_path is typically stored as a relative path like "curriculum/{parent_id}/{file_name}".
+            # To avoid issues with different working directories (local dev vs deployment),
+            # we try a small set of candidate resolutions.
+            raw_path = Path(storage_path)
+            api_root = Path(__file__).resolve().parents[2]  # .../learn_loop/api
+            repo_root = api_root.parent  # .../learn_loop
+
+            candidates: List[Path] = []
+            if raw_path.is_absolute():
+                candidates.append(raw_path)
+            else:
+                candidates.append(raw_path)  # relative to cwd (legacy)
+                candidates.append(api_root / raw_path)  # relative to api/
+                candidates.append(repo_root / raw_path)  # relative to learn_loop/
+
+            file_path: Optional[Path] = None
+            for c in candidates:
+                logger.info(f"📖 [CURRICULUM READER] Checking candidate path: {c} (absolute: {c.absolute()})")
+                if c.exists():
+                    file_path = c
+                    break
+
+            if not file_path:
+                logger.warning(f"⚠️ [CURRICULUM READER] Curriculum file not found for {file_name}. Tried: {[str(p) for p in candidates]}")
                 continue
             
             # Read file content

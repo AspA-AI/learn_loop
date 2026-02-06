@@ -13,7 +13,7 @@ import { learningApi } from '../../services/api';
 const ChatContainer: React.FC = () => {
   const { t } = useTranslation();
   const dispatch = useAppDispatch();
-  const { sessionId, messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, conversationPhase, quiz } = useAppSelector((state) => state.learning);
+  const { sessionId, messages, understandingState, canEndSession, canTakeQuiz, isLoading, isEnding, concept, localizedConcept, conversationPhase, quiz, evaluationReport } = useAppSelector((state) => state.learning);
   const [inputText, setInputText] = useState('');
   const [quizAnswer, setQuizAnswer] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -587,7 +587,10 @@ const ChatContainer: React.FC = () => {
                   {understandingState ? t(`child.${understandingState}`) : t('child.progress')}
                 </h4>
               </div>
-              <ProgressGauge state={understandingState} />
+              <ProgressGauge 
+                state={understandingState} 
+                masteryPercent={evaluationReport?.mastery_percent ?? null}
+              />
             </motion.div>
 
             {/* Always-available Actions */}

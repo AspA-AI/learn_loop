@@ -23,6 +23,7 @@ from agents.insight import insight_agent
 from agents.advisor import advisor_agent, parent_guidance_summarizer
 from utils.document_processor import process_document
 from utils.curriculum_reader import read_curriculum_files
+import hashlib
 from routes.auth import get_current_parent
 from typing import List, Optional, Dict, Any
 from uuid import UUID
@@ -943,6 +944,22 @@ def _build_child_overall_progress_context(child_id: str) -> str:
         if not supabase_service.client:
             return "(database unavailable)"
 
+        # 0) Child-level aggregated curriculum coverage snapshot (token-efficient)
+        child_row = supabase_service.get_child_by_id(str(child_id)) or {}
+        curriculum_cov = child_row.get("curriculum_coverage") if isinstance(child_row, dict) else None
+        curriculum_block = "(no curriculum coverage saved yet)"
+        try:
+            if isinstance(curriculum_cov, dict):
+                items = curriculum_cov.get("covered_items")
+                if isinstance(items, list) and items:
+                    # Keep small for token efficiency
+                    top_items = [str(x) for x in items[:18] if str(x).strip()]
+                    curriculum_block = "Curriculum covered so far (aggregated):\n" + "\n".join([f"- {x}" for x in top_items])
+                else:
+                    curriculum_block = "(no curriculum coverage saved yet)"
+        except Exception:
+            curriculum_block = "(no curriculum coverage saved yet)"
+
         # 1) Recent completed sessions with metrics + academic_summary
         sessions_resp = supabase_service.client.table("sessions") \
             .select("id, concept, created_at, ended_at, metrics, academic_summary") \
@@ -1006,6 +1023,7 @@ def _build_child_overall_progress_context(child_id: str) -> str:
             pass
 
         return (
+            f"{curriculum_block}\n\n"
             f"Recent completed sessions (max 8):\n" + ("\n".join(session_lines) if session_lines else "(none)") + "\n\n"
             f"Averaged metrics across recent sessions: {avg_block}\n\n"
             f"{latest_report_line}"
@@ -1384,10 +1402,41 @@ async def send_advisor_message(chat_id: UUID, request: AdvisorChatMessageRequest
                 logger.info(f"📚 [ADVISOR] Curriculum file: {cf.get('file_name')} (path: {cf.get('storage_path')})")
         
         curriculum_content = read_curriculum_files(curriculum_files) if curriculum_files else None
-        if curriculum_content:
-            logger.info(f"📖 [ADVISOR] Loaded curriculum content ({len(curriculum_content)} chars)")
+        curriculum_available = bool(curriculum_content and str(curriculum_content).strip())
+        if curriculum_available:
+            preview = str(curriculum_content).replace("\n", " ")[:220]
+            digest = hashlib.sha256(str(curriculum_content).encode("utf-8", errors="ignore")).hexdigest()[:12]
+            logger.info(f"📖 [ADVISOR] Loaded curriculum content ({len(curriculum_content)} chars) sha256[:12]={digest} preview='{preview}…'")
         else:
             logger.warning(f"⚠️ [ADVISOR] No curriculum content loaded for child_id: {child_id_str}")
+
+        # Hard guard: if parent asks about curriculum but we don't actually have curriculum text,
+        # do NOT call the LLM (prevents hallucinating curriculum from learning profile).
+        parent_msg_l = (request.message or "").lower()
+        curriculum_question = any(k in parent_msg_l for k in ["curriculum", "cirric", "syllabus", "coverage", "standards"])
+        if curriculum_question and not curriculum_available:
+            logger.warning(
+                f"🧱 [ADVISOR] Curriculum question asked but no curriculum text loaded; returning deterministic response. "
+                f"child_id={child_id_str}"
+            )
+            lang = (current_parent.get("preferred_language") or "English").lower()
+            canned = {
+                "english": (
+                    "I don’t currently have access to Leo’s attached curriculum document in this chat. "
+                    "Right now I only have Leo’s learning profile and recent session summaries.\n\n"
+                    "If you upload/attach the curriculum PDF for Leo (or re-upload it if it was replaced), "
+                    "I can summarize what the curriculum requires and report what Leo has covered so far against it."
+                ),
+                "german": (
+                    "Ich habe in diesem Chat aktuell keinen Zugriff auf Leos angehängtes Curriculum-Dokument. "
+                    "Im Moment liegen mir nur Leos Lernprofil und die letzten Sitzungszusammenfassungen vor.\n\n"
+                    "Wenn du das Curriculum-PDF für Leo hochlädst/anhängst (oder erneut hochlädst, falls es ersetzt wurde), "
+                    "kann ich die Anforderungen zusammenfassen und zeigen, was Leo bisher daraus abgedeckt hat."
+                ),
+            }
+            fallback = canned.get(lang, canned["english"])
+            supabase_service.add_parent_advisor_message(str(chat_id), "assistant", fallback)
+            return AdvisorChatMessageResponse(success=True, message=fallback)
 
         assistant_message = await advisor_agent.respond(
             parent_name=current_parent.get("name"),

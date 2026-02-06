@@ -45,6 +45,11 @@ class AdvisorAgent:
             "- Your role is to help ensure ALL curriculum requirements are met over time, not to suggest picking favorites.\n"
             "- When discussing curriculum, focus on comprehensive coverage and identifying gaps, not selective focus based on interests.\n"
             "- Help plan how to cover all curriculum requirements, adapting teaching approaches while ensuring full coverage.\n"
+            "CRITICAL - Curriculum Evidence Rules (do not violate):\n"
+            "- You may ONLY say you 'have access to the curriculum' if curriculum text is actually provided in the prompt.\n"
+            "- If the curriculum section says '(no curriculum attached)' or the curriculum text is empty, you MUST say you do NOT have the attached curriculum document(s).\n"
+            "- Do NOT infer curriculum subjects/focus areas from the child's interests, learning style, or strengths. Those are NOT curriculum.\n"
+            "- If you reference curriculum requirements, you MUST cite at least 1 concrete detail from the provided curriculum text (a short quote or specific bullet/section).\n"
             f"Respond in {language}.\n"
         )
 
@@ -62,7 +67,8 @@ class AdvisorAgent:
 
         focus_block = focus_session_context or "(no specific session selected)"
 
-        curriculum_block = curriculum_content if curriculum_content else "(no curriculum attached)"
+        curriculum_available = bool(curriculum_content and str(curriculum_content).strip())
+        curriculum_block = curriculum_content if curriculum_available else "(no curriculum attached)"
         if curriculum_content:
             logger.info(f"📖 [ADVISOR] Including curriculum in context ({len(curriculum_content)} chars)")
         else:
@@ -85,6 +91,7 @@ class AdvisorAgent:
             f"Parent name: {parent_name or 'Parent'}\n"
             f"{child_block}\n\n"
             f"Child learning profile (do not ask parent to restate): {profile_block or '(not provided)'}\n\n"
+            f"Curriculum attached: {'YES' if curriculum_available else 'NO'}\n"
             f"Child's Mandatory Curriculum Framework (required coverage):\n{curriculum_block}{curriculum_instruction}\n\n"
             f"Existing parent guidance notes (newest first):\n{notes_block}\n\n"
             f"Overall child progress summary (use this for trends; do not invent missing data):\n{overall_block}\n\n"

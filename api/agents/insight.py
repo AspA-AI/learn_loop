@@ -179,6 +179,66 @@ class InsightAgent:
                 "concept_mastery_level": "developing"
             }
 
+    async def extract_session_curriculum_coverage(
+        self,
+        *,
+        concept: str,
+        interactions: List[Dict[str, Any]],
+        grounding_context: str,
+    ) -> List[str]:
+        """
+        Extract curriculum subtopics/skills that were actually covered in this session (evidence-based).
+        Returns a short list of strings suitable for storing/aggregating.
+        """
+        try:
+            # Bound history for token efficiency
+            history_text = "\n".join(
+                [
+                    f"{'Child' if i.get('role') == 'user' else 'AI'}: {str(i.get('content') or '')}"
+                    for i in interactions[-18:]
+                ]
+            )
+
+            system = (
+                "You are an educational analyst. You extract which curriculum items were ACTUALLY covered in a session.\n"
+                "Hard rules:\n"
+                "- Be evidence-based: only mark an item as covered if the transcript shows it was taught/practiced.\n"
+                "- Do NOT infer coverage just because it's in the curriculum.\n"
+                "- Output ONLY JSON: {\"covered_items\": [\"...\", \"...\"]}.\n"
+                "- Keep covered_items short (max 12 words each). Max 8 items.\n"
+                "- Items must be specific sub-skills for the given concept.\n"
+            )
+
+            user = (
+                f"Concept: {concept}\n\n"
+                f"Curriculum text (authoritative):\n{grounding_context}\n\n"
+                f"Session transcript:\n{history_text}\n\n"
+                "Task:\n"
+                "1) Scan curriculum for required subtopics for this concept.\n"
+                "2) Compare against transcript.\n"
+                "3) List only the curriculum subtopics that were actually covered in the transcript.\n"
+            )
+
+            response_text = await openai_service.get_chat_completion(
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0.0,
+                max_tokens=250,
+                response_format={"type": "json_object"},
+            )
+            obj = json.loads(response_text or "{}")
+            items = obj.get("covered_items", [])
+            if not isinstance(items, list):
+                return []
+            cleaned: List[str] = []
+            for x in items:
+                s = str(x or "").strip()
+                if s and s not in cleaned:
+                    cleaned.append(s)
+            return cleaned[:8]
+        except Exception as e:
+            logger.warning(f"Failed to extract session curriculum coverage: {e}")
+            return []
+
     async def generate_formal_periodic_report(self, child_info: Dict[str, Any], parent_info: Dict[str, Any], sessions: List[Dict[str, Any]], curriculum_info: str, report_type: str) -> Dict[str, Any]:
         """
         Generate a professional, inspector-ready progress report.
