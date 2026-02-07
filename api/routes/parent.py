@@ -1436,7 +1436,11 @@ async def send_advisor_message(chat_id: UUID, request: AdvisorChatMessageRequest
             }
             fallback = canned.get(lang, canned["english"])
             supabase_service.add_parent_advisor_message(str(chat_id), "assistant", fallback)
-            return AdvisorChatMessageResponse(success=True, message=fallback)
+            return AdvisorChatMessageResponse(
+                chat_id=UUID(str(chat_id)),
+                assistant_message=fallback,
+                appended_notes=[],
+            )
 
         assistant_message = await advisor_agent.respond(
             parent_name=current_parent.get("name"),
