@@ -656,7 +656,9 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
                 quiz_percentage = (total_quiz_score / max_quiz_score * 100) if max_quiz_score > 0 else 0
         
         # 5c. Compute mastery_percent using a deterministic algorithm (not by LLM)
-        if avg_corr is not None:
+        # If no valid concept Q/A pairs (child ended before answering, or only said "ready"/greetings),
+        # mastery is 0%. Do NOT use fallback heuristics that can wrongly give 100%.
+        if avg_corr is not None and questions_info:
             # Start from answer correctness average
             base_mastery_from_answers = avg_corr
 
@@ -672,30 +674,9 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
             else:
                 mastery_percent = int(base_mastery_from_answers)
         else:
-            # Fallback: no clear Q/A pairs detected; fall back to previous understanding-state heuristic.
-            states = [
-                i.get("understanding_state")
-                for i in interactions
-                if i.get("understanding_state")
-                and i.get("understanding_state") != "procedural"
-            ]
-            total = len(states)
-            understood = states.count("understood") if total > 0 else 0
-            partial = states.count("partial") if total > 0 else 0
-            confused = states.count("confused") if total > 0 else 0
-
-            base_mastery = 0.0
-            if total > 0:
-                base_mastery = (
-                    (understood * 1.0 + partial * 0.6 + confused * 0.2) / total
-                ) * 100
-
-            if quiz_percentage is not None:
-                mastery_percent = int(
-                    base_mastery * 0.4 + quiz_percentage * 0.6
-                )
-            else:
-                mastery_percent = int(base_mastery)
+            # No valid answered concept questions - child ended early, only said "ready", etc.
+            # Use 0% mastery; do not fall back to understanding_state (we disabled real-time eval).
+            mastery_percent = 0
         
         # Ensure mastery is between 0 and 100
         mastery_percent = max(0, min(100, mastery_percent))

@@ -227,6 +227,11 @@ class EvaluatorAgent:
             if not isinstance(questions, list):
                 questions = []
 
+            # Questions that are setup/greeting, NOT concept-related - exclude from grading
+            setup_question_indicators = ["ready", "ready to", "start", "begin", "would you like", "shall we", "let's begin"]
+            # Answers that are just acknowledgments, not substantive concept answers
+            acknowledgment_answers = ["ready", "yes", "ok", "okay", "yeah", "yep", "sure", "let's go", "yea"]
+
             cleaned_questions: List[Dict[str, Any]] = []
             for idx, q in enumerate(questions, start=1):
                 if not isinstance(q, dict):
@@ -238,8 +243,17 @@ class EvaluatorAgent:
                 if not question_text or not answer_text:
                     continue
                 
-                # Skip if answer indicates no answer was given
+                # Skip setup/greeting questions (e.g. "Are you ready?", "Ready to start?")
+                question_lower = question_text.lower()
+                if any(ind in question_lower for ind in setup_question_indicators):
+                    continue
+                
+                # Skip answers that are just acknowledgments, not concept answers
                 answer_lower = answer_text.lower().strip()
+                if answer_lower in acknowledgment_answers:
+                    continue
+                
+                # Skip if answer indicates no answer was given
                 skip_indicators = ["i don't know", "i don't know.", "don't know", "skip", "pass", "no answer", 
                                   "n/a", "na", "none", "nothing", "idk"]
                 if any(indicator in answer_lower for indicator in skip_indicators):
