@@ -176,13 +176,14 @@ class EvaluatorAgent:
                 "- The child did not respond\n"
                 "- The child's response is empty or just whitespace\n"
                 "- The child's response is clearly not an answer (e.g., 'I don't know', 'skip', 'pass')\n"
+                "- The child only said acknowledgments like 'ready', 'Ready!', 'yes', 'ok', 'okay', 'sure' - these are NOT concept answers\n"
                 "- The conversation moved on without the child answering\n\n"
                 "Rules:\n"
                 "- First, identify the main concept the AI is teaching (it is provided explicitly).\n"
                 "- Then, scan the conversation for AI QUESTIONS about that concept and the child's direct replies.\n"
                 "- ONLY consider question/answer pairs where:\n"
-                "  1. The AI asked a question about the concept\n"
-                "  2. The child provided an actual answer (not empty, not skipped, not 'I don't know')\n"
+                "  1. The AI asked a question about the concept (NOT setup like 'Are you ready?', 'Ready to start?')\n"
+                "  2. The child provided an actual substantive answer about the concept (NOT 'ready', 'yes', 'ok' - those are acknowledgments)\n"
                 "  3. The question/answer pair is truly about the concept (ignore greetings, 'are you ready?', chit-chat)\n"
                 "- DO NOT create entries for questions that were not answered - skip them entirely.\n"
                 "- For each valid answered pair, create one entry with:\n"
@@ -227,10 +228,16 @@ class EvaluatorAgent:
             if not isinstance(questions, list):
                 questions = []
 
+            logger.info(f"📋 [EVALUATOR] LLM returned {len(questions)} raw question/answer pairs for concept '{concept}'")
+
             # Questions that are setup/greeting, NOT concept-related - exclude from grading
             setup_question_indicators = ["ready", "ready to", "start", "begin", "would you like", "shall we", "let's begin"]
-            # Answers that are just acknowledgments, not substantive concept answers
-            acknowledgment_answers = ["ready", "yes", "ok", "okay", "yeah", "yep", "sure", "let's go", "yea"]
+            # Answers that are just acknowledgments, not substantive concept answers (strip punctuation for match: "Ready!" -> "ready")
+            acknowledgment_answers = ["ready", "yes", "ok", "okay", "yeah", "yep", "sure", "let's go", "yea", "nod", "yup"]
+
+            def _normalize_for_ack_check(s: str) -> str:
+                """Strip punctuation so 'Ready!' matches 'ready'."""
+                return "".join(c for c in s.lower().strip() if c.isalnum() or c.isspace()).strip()
 
             cleaned_questions: List[Dict[str, Any]] = []
             for idx, q in enumerate(questions, start=1):
@@ -241,19 +248,23 @@ class EvaluatorAgent:
                 
                 # Skip if question or answer is missing
                 if not question_text or not answer_text:
+                    logger.debug(f"📋 [EVALUATOR] Skipped pair {idx}: empty question or answer")
                     continue
                 
                 # Skip setup/greeting questions (e.g. "Are you ready?", "Ready to start?")
                 question_lower = question_text.lower()
                 if any(ind in question_lower for ind in setup_question_indicators):
+                    logger.info(f"📋 [EVALUATOR] Skipped pair {idx} (setup question): Q={question_text[:50]}... A={answer_text[:30]}")
                     continue
                 
-                # Skip answers that are just acknowledgments, not concept answers
-                answer_lower = answer_text.lower().strip()
-                if answer_lower in acknowledgment_answers:
+                # Skip answers that are just acknowledgments - normalize first so "Ready!" matches "ready"
+                answer_normalized = _normalize_for_ack_check(answer_text)
+                if answer_normalized in acknowledgment_answers:
+                    logger.info(f"📋 [EVALUATOR] Skipped pair {idx} (acknowledgment answer): Q={question_text[:50]}... A={answer_text!r}")
                     continue
                 
                 # Skip if answer indicates no answer was given
+                answer_lower = answer_text.lower().strip()
                 skip_indicators = ["i don't know", "i don't know.", "don't know", "skip", "pass", "no answer", 
                                   "n/a", "na", "none", "nothing", "idk"]
                 if any(indicator in answer_lower for indicator in skip_indicators):
@@ -278,6 +289,10 @@ class EvaluatorAgent:
                     }
                 )
             cleaned_questions = cleaned_questions[:12]
+
+            logger.info(f"📋 [EVALUATOR] After filtering: {len(cleaned_questions)} valid concept Q/A pairs kept")
+            for q in cleaned_questions:
+                logger.info(f"   -> Q: {q.get('question', '')[:60]}... A: {q.get('child_answer', '')[:40]} (rel={q.get('answer_relevance')}, corr={q.get('answer_correctness')})")
 
             topic_discussed = bool(
                 any(q.get("answer_relevance", 0) >= 50 for q in cleaned_questions)

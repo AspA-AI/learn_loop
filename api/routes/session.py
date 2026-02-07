@@ -626,6 +626,8 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
         )
         questions_info = answer_evaluation.get("questions") or []
 
+        logger.info(f"📊 [SESSION END] Evaluation: {len(questions_info)} valid Q/A pairs, concept={session['concept']}")
+
         # 5b. Aggregate correctness and relevance into a numeric mastery score
         corr_scores: List[float] = []
         rel_scores: List[float] = []
@@ -677,9 +679,11 @@ async def end_session(session_id: str, request: Optional[SessionEndRequest] = Bo
             # No valid answered concept questions - child ended early, only said "ready", etc.
             # Use 0% mastery; do not fall back to understanding_state (we disabled real-time eval).
             mastery_percent = 0
-        
+            logger.info(f"📊 [SESSION END] No valid concept Q/A pairs -> mastery_percent=0")
+
         # Ensure mastery is between 0 and 100
         mastery_percent = max(0, min(100, mastery_percent))
+        logger.info(f"📊 [SESSION END] Final mastery_percent={mastery_percent} (avg_corr={avg_corr}, avg_rel={avg_rel}, questions_count={len(questions_info)})")
         
         # 6. Enrich report with session metadata
         evaluation_report = {
