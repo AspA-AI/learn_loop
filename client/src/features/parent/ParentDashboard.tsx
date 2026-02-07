@@ -2073,6 +2073,16 @@ const CurriculumExplorer: React.FC = () => {
     dispatch(fetchCurriculum());
   }, [dispatch]);
 
+  // Debug: Log when component mounts and fileInputRef changes
+  useEffect(() => {
+    console.log('🔍 CurriculumExplorer mounted, fileInputRef:', fileInputRef.current);
+    if (fileInputRef.current) {
+      console.log('✅ File input element found');
+    } else {
+      console.warn('⚠️ File input element not found');
+    }
+  }, []);
+
   // Check which children already have curriculum
   const getChildrenWithCurriculum = () => {
     const childrenWithCurriculum = new Set<string>();
@@ -2086,6 +2096,7 @@ const CurriculumExplorer: React.FC = () => {
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('📤 Upload form submitted', { selectedFile, assignedChildIds });
     if (selectedFile && assignedChildIds.length > 0) {
       // Store child IDs before clearing (needed for success message)
       const uploadedChildIds = [...assignedChildIds];
@@ -2156,9 +2167,13 @@ const CurriculumExplorer: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    console.log('📦 File dropped', e.dataTransfer.files);
     const file = e.dataTransfer.files[0];
     if (file && (file.type === 'application/pdf' || file.type.startsWith('text/') || file.name.endsWith('.md'))) {
+      console.log('✅ Valid file dropped, setting selected file');
       setSelectedFile(file);
+    } else {
+      console.warn('❌ Invalid file dropped:', file?.type, file?.name);
     }
   };
 
@@ -2194,9 +2209,19 @@ const CurriculumExplorer: React.FC = () => {
             {t('parent.upload_document')}
           </h3>
           
-          <form onSubmit={handleUpload} className="space-y-5">
+          <form 
+            onSubmit={handleUpload} 
+            className="space-y-5"
+            onKeyDown={(e) => {
+              // Don't let form submission interfere with file input
+              if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+                e.preventDefault();
+              }
+            }}
+          >
             {/* File Upload Area */}
             <label
+              htmlFor="curriculum-file-input"
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
@@ -2209,13 +2234,56 @@ const CurriculumExplorer: React.FC = () => {
               }`}
             >
               <input 
+                id="curriculum-file-input"
                 ref={fileInputRef}
                 type="file" 
                 accept=".pdf,.txt,.md"
-                className="absolute inset-0 opacity-0 cursor-pointer" 
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50"
+                style={{ pointerEvents: 'auto', fontSize: '0' }}
+                onChange={(e) => {
+                  console.log('🟢 File input onChange triggered', e.target.files);
+                  const file = e.target.files?.[0] || null;
+                  console.log('🟢 File selected:', file);
+                  if (file) {
+                    console.log('🟢 File details:', {
+                      name: file.name,
+                      type: file.type,
+                      size: file.size
+                    });
+                    // Validate file type
+                    const validTypes = ['application/pdf', 'text/plain', 'text/markdown'];
+                    const validExtensions = ['.pdf', '.txt', '.md'];
+                    const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+                    
+                    if (validTypes.includes(file.type) || validExtensions.includes(fileExtension)) {
+                      console.log('✅ File validated, setting selected file');
+                      setSelectedFile(file);
+                    } else {
+                      console.warn('❌ Invalid file type:', file.type, fileExtension);
+                      alert('Please select a PDF, TXT, or MD file.');
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
+                    }
+                  } else {
+                    console.log('⚠️ No file selected');
+                    setSelectedFile(null);
+                  }
+                }}
+                onMouseDown={() => {
+                  console.log('🟡 File input mousedown - this should trigger file picker');
+                  // CRITICAL: Don't prevent default - we need the file picker to open
+                  // The mousedown event is what actually triggers the file picker
+                }}
+                onClick={() => {
+                  console.log('🟡 File input clicked - file picker should open');
+                  // CRITICAL: Don't prevent default or stop propagation
+                  // Let the browser's native behavior work
+                }}
+                onFocus={() => console.log('🟡 File input focused')}
+                onBlur={() => console.log('🟡 File input blurred')}
               />
-              <div className="space-y-3">
+              <div className="space-y-3 upload-area-content">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto transition-all ${
                   selectedFile 
                     ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg' 
@@ -2234,6 +2302,28 @@ const CurriculumExplorer: React.FC = () => {
                       {t('parent.drop_file')}
                     </p>
                     <p className="text-xs text-slate-500">{t('parent.file_types_hint')}</p>
+                    {/* Fallback button to trigger file input */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔘 Fallback button clicked, triggering file input');
+                        if (fileInputRef.current) {
+                          console.log('🔘 File input ref exists, calling click()');
+                          // Use requestAnimationFrame to ensure user gesture context
+                          requestAnimationFrame(() => {
+                            fileInputRef.current?.click();
+                            console.log('🔘 File input click() called');
+                          });
+                        } else {
+                          console.error('❌ File input ref is null!');
+                        }
+                      }}
+                      className="mt-3 px-4 py-2 bg-indigo-500 text-white text-xs font-bold rounded-lg hover:bg-indigo-600 transition-colors z-20 relative"
+                    >
+                      Browse Files
+                    </button>
                   </>
                 )}
               </div>

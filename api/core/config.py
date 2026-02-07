@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None  # Use for backend; bypasses RLS (Storage, etc.)
     SUPABASE_DB_URL: Optional[str] = None # postgresql://postgres:[password]@db.[id].supabase.co:5432/postgres
     
     # Weaviate

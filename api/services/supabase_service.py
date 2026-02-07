@@ -28,11 +28,13 @@ def _is_schema_cache_missing_table(err: Exception) -> bool:
 class SupabaseService:
     def __init__(self):
         try:
-            if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+            # Prefer service_role key for backend (bypasses RLS; needed for Storage uploads)
+            key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_KEY
+            if not settings.SUPABASE_URL or not key:
                 logger.warning("Supabase credentials missing. Database features will not work.")
                 self.client = None
             else:
-                self.client: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+                self.client: Client = create_client(settings.SUPABASE_URL, key)
         except Exception as e:
             logger.error(f"Failed to initialize Supabase client: {e}")
             self.client = None
@@ -329,13 +331,10 @@ class SupabaseService:
             except:
                 pass  # Bucket might already exist
             
-            # Upload file - Supabase Python client expects file-like object or bytes
-            from io import BytesIO
-            file_obj = BytesIO(file_content)
-            
+            # Upload file - Supabase Python client expects str path, bytes, or PathLike, NOT BytesIO
             response = self.client.storage.from_(bucket_name).upload(
                 path=file_path,
-                file=file_obj,
+                file=file_content,
                 file_options={"content-type": content_type, "upsert": "true"}
             )
             return response

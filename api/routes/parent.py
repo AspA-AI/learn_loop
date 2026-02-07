@@ -130,10 +130,25 @@ async def upload_curriculum(
                     # Get file paths for removed documents
                     doc_paths = supabase_service.get_curriculum_document_paths(removed_doc_ids)
                     
-                    # Delete old files from local storage
+                    # Delete old files from storage (Supabase Storage or local)
                     for doc_path_info in doc_paths:
                         storage_path = doc_path_info.get("storage_path")
-                        if storage_path:
+                        if not storage_path:
+                            continue
+                        
+                        # Check if it's in Supabase Storage
+                        if storage_path.startswith("supabase://"):
+                            try:
+                                parts = storage_path.replace("supabase://", "").split("/", 1)
+                                if len(parts) == 2:
+                                    bucket_name, file_path_in_bucket = parts
+                                    supabase_service.client.storage.from_(bucket_name).remove([file_path_in_bucket])
+                                    removed_files.append(storage_path)
+                                    logger.info(f"Removed old curriculum file from Supabase Storage: {storage_path}")
+                            except Exception as e:
+                                logger.warning(f"Failed to delete from Supabase Storage {storage_path}: {e}")
+                        else:
+                            # Delete from local storage (fallback)
                             file_path = Path(storage_path)
                             if file_path.exists():
                                 try:
@@ -152,36 +167,61 @@ async def upload_curriculum(
         file_content = await file.read()
         file_size = len(file_content)
         
-        # 3. Save new file locally in learn_loop/curriculum/{parent_id}/{file_name}
+        # 3. Upload to Supabase Storage (cloud storage for Railway deployment compatibility)
         parent_id = str(current_parent["id"])
-        curriculum_dir = Path("curriculum") / parent_id
-        curriculum_dir.mkdir(parents=True, exist_ok=True)
+        storage_bucket = "curriculum"
+        storage_path_in_bucket = f"{parent_id}/{file.filename}"
+        local_file_path = None  # Initialize for potential fallback
         
-        local_file_path = curriculum_dir / file.filename
-        
-        # Write file to local storage
-        with open(local_file_path, "wb") as f:
-            f.write(file_content)
-        
-        # Store relative path for database (e.g., "curriculum/{parent_id}/{file_name}")
-        storage_path = f"curriculum/{parent_id}/{file.filename}"
+        try:
+            # Upload to Supabase Storage
+            content_type = file.content_type or "application/pdf"
+            supabase_service.upload_file_to_storage(
+                bucket_name=storage_bucket,
+                file_path=storage_path_in_bucket,
+                file_content=file_content,
+                content_type=content_type
+            )
+            logger.info(f"✅ Curriculum file uploaded to Supabase Storage: {storage_bucket}/{storage_path_in_bucket}")
+            
+            # Also save locally as fallback (for local dev)
+            try:
+                curriculum_dir = Path("curriculum") / parent_id
+                curriculum_dir.mkdir(parents=True, exist_ok=True)
+                local_file_path = curriculum_dir / file.filename
+                with open(local_file_path, "wb") as f:
+                    f.write(file_content)
+                logger.info(f"✅ Curriculum file also saved locally: {local_file_path}")
+            except Exception as local_err:
+                logger.warning(f"⚠️ Failed to save curriculum locally (non-critical): {local_err}")
+            
+            # Store storage path for database (format: "supabase://bucket/path" to distinguish from local)
+            storage_path = f"supabase://{storage_bucket}/{storage_path_in_bucket}"
+            
+        except Exception as storage_err:
+            logger.error(f"❌ Failed to upload to Supabase Storage: {storage_err}")
+            # Fallback to local storage if Supabase Storage fails
+            curriculum_dir = Path("curriculum") / parent_id
+            curriculum_dir.mkdir(parents=True, exist_ok=True)
+            local_file_path = curriculum_dir / file.filename
+            with open(local_file_path, "wb") as f:
+                f.write(file_content)
+            storage_path = f"curriculum/{parent_id}/{file.filename}"
+            logger.warning(f"⚠️ Fallback: Curriculum file saved locally only: {local_file_path}")
         
         # 4. Store new document metadata in database
         doc = supabase_service.add_curriculum_document(
             parent_id, 
             file.filename, 
             ids,
-            storage_path=storage_path,  # Local file path
+            storage_path=storage_path,
             file_size=file_size
         )
-        
-        logger.info(f"Curriculum file saved locally: {local_file_path}")
         
         return {
             "status": "success", 
             "document": doc, 
             "storage_path": storage_path,
-            "local_path": str(local_file_path),
             "replaced": len(removed_files) > 0,
             "removed_files": removed_files
         }
