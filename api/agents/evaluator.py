@@ -186,10 +186,11 @@ class EvaluatorAgent:
                 "  2. The child provided an actual substantive answer about the concept (NOT 'ready', 'yes', 'ok' - those are acknowledgments)\n"
                 "  3. The question/answer pair is truly about the concept (ignore greetings, 'are you ready?', chit-chat)\n"
                 "- DO NOT create entries for questions that were not answered - skip them entirely.\n"
+                "- CRITICAL: child_answer MUST be the child's EXACT words from the conversation. Do NOT invent, paraphrase, or add words the child never said.\n"
                 "- For each valid answered pair, create one entry with:\n"
                 "  * id: sequential integer starting from 1\n"
                 "  * question: the AI's question (shortened if very long)\n"
-                "  * child_answer: the child's answer text\n"
+                "  * child_answer: the child's exact answer text as it appears in the conversation (copy-paste, do not embellish)\n"
                 "  * answer_relevance: 0-100, how much the child's answer actually addresses and engages with the question about the concept.\n"
                 "    CRITICAL: If the answer is completely wrong, nonsensical, or shows no understanding (e.g., answering '0' to all addition questions), "
                 "    the relevance should be LOW (0-30), not high. High relevance (70-100) means the child is meaningfully engaging with the question, "
@@ -230,6 +231,12 @@ class EvaluatorAgent:
 
             logger.info(f"📋 [EVALUATOR] LLM returned {len(questions)} raw question/answer pairs for concept '{concept}'")
 
+            # Build actual child messages from conversation - reject LLM hallucinations (answers not in conversation)
+            def _normalize_for_substring(s: str) -> str:
+                return "".join(c for c in s.lower() if c.isalnum() or c.isspace()).strip()
+            user_messages = [str(i.get("content") or "").strip() for i in interactions if i.get("role") == "user"]
+            user_messages_normalized = _normalize_for_substring(" ".join(user_messages))
+
             # Questions that are setup/greeting, NOT concept-related - exclude from grading
             setup_question_indicators = ["ready", "ready to", "start", "begin", "would you like", "shall we", "let's begin"]
             # Answers that are just acknowledgments, not substantive concept answers (strip punctuation for match: "Ready!" -> "ready")
@@ -269,6 +276,13 @@ class EvaluatorAgent:
                                   "n/a", "na", "none", "nothing", "idk"]
                 if any(indicator in answer_lower for indicator in skip_indicators):
                     continue
+
+                # CRITICAL: Reject LLM hallucinations - child_answer must appear in actual conversation
+                answer_norm = _normalize_for_substring(answer_text)
+                if not answer_norm or answer_norm not in user_messages_normalized:
+                    logger.info(f"📋 [EVALUATOR] Skipped pair {idx} (answer not in conversation - hallucination): A={answer_text!r}")
+                    continue
+
                 try:
                     rel = float(q.get("answer_relevance", 0) or 0)
                 except Exception:
