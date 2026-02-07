@@ -5,7 +5,8 @@ interface ChildStat {
   child_id: string;
   name: string;
   mastery_count: number;
-  mastery_percent: number;
+  mastery_percent: number;  // Average across all sessions
+  latest_session_mastery?: number;  // Most recent session only
   total_sessions: number;
   total_seconds: number;  // Changed from total_hours to total_seconds
 }

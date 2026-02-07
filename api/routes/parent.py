@@ -818,12 +818,14 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
             child_name = session.get("child_name", "Unknown")
             
             if child_id not in children_data:
+                # Sessions are ordered created_at desc, so first seen = most recent
                 children_data[child_id] = {
                     "child_id": child_id,
                     "name": child_name,
                     "sessions": [],
                     "mastery_scores": [],
-                    "total_interactions": 0
+                    "total_interactions": 0,
+                    "latest_mastery": report.get("mastery_percent", 0)
                 }
             
             children_data[child_id]["sessions"].append(session)
@@ -878,7 +880,8 @@ async def get_insights(week: Optional[str] = Query(None), current_parent: dict =
                 "child_id": str(child_id),
                 "name": data["name"],
                 "mastery_count": sum(1 for score in data["mastery_scores"] if score >= 80),  # Count high mastery sessions
-                "mastery_percent": avg_mastery,
+                "mastery_percent": avg_mastery,  # Average across all sessions
+                "latest_session_mastery": data.get("latest_mastery"),  # Most recent session only
                 "total_sessions": len(data["sessions"]),
                 "total_seconds": total_seconds  # Return seconds for frontend to format
             })

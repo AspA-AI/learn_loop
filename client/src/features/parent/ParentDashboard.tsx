@@ -557,8 +557,12 @@ const GrowthInsights: React.FC = () => {
                 
                 <div className="grid grid-cols-3 gap-4">
                   <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100">
-                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">{t('parent.mastery')}</p>
+                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">{t('parent.average_mastery')}</p>
                     <p className="text-3xl font-black text-indigo-600">{childStat.mastery_percent}%</p>
+                    <p className="text-xs text-slate-500 mt-1">{t('parent.average_mastery_hint', { count: childStat.total_sessions || 0 })}</p>
+                    {childStat.latest_session_mastery != null && (
+                      <p className="text-xs text-slate-400 mt-0.5">{t('parent.latest_session_mastery')}: {childStat.latest_session_mastery}%</p>
+                    )}
                   </div>
                   <div className="p-5 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100">
                     <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2">{t('parent.sessions')}</p>
@@ -1677,7 +1681,7 @@ const ChildrenManagement: React.FC = () => {
                   <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100 text-center">
                     <Award size={16} className="mx-auto mb-2 text-indigo-600" />
                     <p className="text-2xl font-black text-indigo-600">{getChildStats(profile.id).mastery}%</p>
-                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{t('parent.mastery')}</p>
+                    <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{t('parent.average_mastery')}</p>
                   </div>
                   <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl border border-purple-100 text-center">
                     <Clock size={16} className="mx-auto mb-2 text-purple-600" />
