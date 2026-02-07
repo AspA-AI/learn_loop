@@ -249,6 +249,8 @@ const learningSlice = createSlice({
         state.conversationPhase = action.payload.conversation_phase || null;
         state.learningLanguage = action.payload.learning_language || null;
         state.sessionStartTime = Date.now(); // Track session start time
+        state.understandingState = null;
+        state.evaluationReport = null; // Clear previous session's evaluation - no grading until session ends
         state.messages = [{ 
           role: 'assistant', 
           content: action.payload.initial_explanation, 

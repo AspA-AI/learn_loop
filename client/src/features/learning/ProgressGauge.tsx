@@ -20,12 +20,12 @@ const ProgressGauge: React.FC<ProgressGaugeProps> = ({
     if (isEvaluationMode && masteryPercent !== null) {
       return masteryPercent;
     }
-    // Fallback to old state-based logic during conversation
+    // During conversation: no real-time evaluation - show 0% to avoid implying progress when none is graded yet
     switch (state) {
       case 'confused': return 33;
       case 'partial': return 66;
       case 'understood': return 100;
-      default: return 5;
+      default: return 0; // procedural/null = no evaluation yet, don't show fake 5%
     }
   };
 
