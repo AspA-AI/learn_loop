@@ -135,7 +135,7 @@ const LandingPage: React.FC = () => {
             </button>
           </form>
           <p className="mt-4 pt-4 border-t border-slate-200/80 text-center text-xs text-slate-500 font-medium">
-            Demo (judges): Child ID = <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">SAR-758</code>
+            Demo (judges): Child ID <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">SAR-758</code>
           </p>
         </motion.div>
 
@@ -262,13 +262,13 @@ const LandingPage: React.FC = () => {
                     </button>
                   </div>
                   <p className="mt-4 pt-4 border-t border-white/20 text-center text-xs text-white/70 font-medium">
-                    Demo (judges): <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> / <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code>
+                    Demo (judges): Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> · Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
                   </p>
               </motion.form>
             )}
             {!showParentLogin && (
               <p className="mt-4 pt-4 border-t border-white/20 text-center text-xs text-white/70 font-medium">
-                Demo (judges): <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> / <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code>
+                Demo (judges): Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> · Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
               </p>
             )}
           </div>
