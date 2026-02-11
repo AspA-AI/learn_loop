@@ -262,13 +262,17 @@ const LandingPage: React.FC = () => {
                     </button>
                   </div>
                   <p className="mt-4 pt-4 border-t border-white/20 text-center text-xs text-white/70 font-medium">
-                    Demo (judges): Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> · Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
+                    Demo (judges):<br />
+                    Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code><br />
+                    Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
                   </p>
               </motion.form>
             )}
             {!showParentLogin && (
               <p className="mt-4 pt-4 border-t border-white/20 text-center text-xs text-white/70 font-medium">
-                Demo (judges): Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code> · Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
+                Demo (judges):<br />
+                    Username <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo@gmail.com</code><br />
+                    Password <code className="bg-white/20 px-1.5 py-0.5 rounded font-mono">demo123</code>
               </p>
             )}
           </div>
